@@ -1,214 +1,525 @@
+
 import os
 import telebot
-from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
-from pymongo import MongoClient
+import time
+import threading
+import logging
 from datetime import datetime, timedelta
-from apscheduler.schedulers.background import BackgroundScheduler
 from flask import Flask
-from threading import Thread
+from pymongo import MongoClient
+from telebot import types
+from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
+from ethiopian_date import EthiopianDateConverter
 
-# --- RENDER KEEP-ALIVE SERVER ---
+# =========================================================================
+# 1. LOGGING & SERVER SETUP (KEEP ALIVE)
+# =========================================================================
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
+logger = logging.getLogger(__name__)
+
 app = Flask('')
+
 @app.route('/')
-def home(): return "Bot is running and healthy!"
+def home():
+    return "<b>Gett VIP Pro Bot is running smoothly!</b>"
 
-def run_web():
+def run_web_server():
     port = int(os.environ.get("PORT", 5000))
-    app.run(host='0.0.0.0', port=port)
+    app.run(host="0.0.0.0", port=port)
 
-def keep_alive():
-    Thread(target=run_web).start()
+def start_keep_alive():
+    server_thread = threading.Thread(target=run_web_server, daemon=True)
+    server_thread.start()
 
-# --- CONFIGURATION (Environment Variables) ---
-BOT_TOKEN = os.getenv('BOT_TOKEN')
-MONGO_URI = os.getenv('MONGO_URI')
-ADMIN_ID = int(os.getenv('ADMIN_ID'))
-UPI_ID = os.getenv('UPI_ID')
-CONTACT_USERNAME = os.getenv('CONTACT_USERNAME')
+# =========================================================================
+# 2. CONFIGURATION & DATABASE CONNECT
+# =========================================================================
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+ADMIN_ID = int(os.getenv("ADMIN_ID"))
+MONGO_URI = os.getenv("MONGO_URI")
 
-bot = telebot.TeleBot(BOT_TOKEN)
-client = MongoClient(MONGO_URI)
-db = client['sub_management']
-channels_col = db['channels']
-users_col = db['users']
+# Initialize Bot
+bot = telebot.TeleBot(BOT_TOKEN, parse_mode="HTML")
 
-# --- ADMIN LOGIC ---
+# Initialize MongoDB
+try:
+    client = MongoClient(MONGO_URI)
+    db = client["gett_vip_ultimate_db"]
+    users_col = db["users"]
+    channels_col = db["channels"]
+    settings_col = db["settings"]
+    logger.info("Connected to MongoDB successfully!")
+except Exception as e:
+    logger.error(f"MongoDB Connection Error: {e}")
 
-@bot.message_handler(commands=['start'])
-def start_handler(message):
-    user_id = message.from_user.id
-    text = message.text.split()
+# VIP Subscription Plans
+PLANS = {
+    "plan1": {"duration": 30, "price": 200, "name": "የ 1 ወር (200 ብር)", "days": 30},
+    "plan2": {"duration": 60, "price": 380, "name": "የ 2 ወር (380 ብር)", "days": 60},
+    "plan3": {"duration": 90, "price": 550, "name": "የ 3 ወር (550 ብር)", "days": 90},
+    "plan5": {"duration": 150, "price": 1050, "name": "የ 5 ወር (1050 ብር)", "days": 150},
+    "plan12": {"duration": 365, "price": 2000, "name": "የ 1 አመት (2000 ብር)", "days": 365}
+}
 
-    # User entry via Deep Link
-    if len(text) > 1:
-        try:
-            ch_id = int(text[1])
-            ch_data = channels_col.find_one({"channel_id": ch_id})
-            if ch_data:
-                markup = InlineKeyboardMarkup()
-                # Display Dynamic Plans
-                for p_time, p_price in ch_data['plans'].items():
-                    label = f"{p_time} Min" if int(p_time) < 60 else f"{int(p_time)//1440} Days"
-                    markup.add(InlineKeyboardButton(f"💳 {label} - ₹{p_price}", callback_data=f"select_{ch_id}_{p_time}"))
-                
-                markup.add(InlineKeyboardButton("📞 Contact Admin", url=f"https://t.me/{CONTACT_USERNAME}"))
-                bot.send_message(message.chat.id, 
-                    f"Welcome!\n\nYou are joining: *{ch_data['name']}*.\n\nPlease select a subscription plan below:", 
-                    reply_markup=markup, parse_mode="Markdown")
-                return
-        except: pass
-
-    # Admin Panel Greeting
-    if user_id == ADMIN_ID:
-        bot.send_message(message.chat.id, "✅ Admin Panel Active!\n\n/add - Add/Edit Channel & Prices\n/channels - Manage Existing Channels")
-    else:
-        bot.send_message(message.chat.id, "Welcome! To join a channel, please use the link provided by the Admin.")
-
-@bot.message_handler(commands=['channels'], func=lambda m: m.from_user.id == ADMIN_ID)
-def list_channels(message):
-    markup = InlineKeyboardMarkup()
-    # Fetch all channels managed by this admin
-    cursor = channels_col.find({"admin_id": ADMIN_ID})
-    count = 0
-    for ch in cursor:
-        markup.add(InlineKeyboardButton(f"Channel: {ch['name']}", callback_data=f"manage_{ch['channel_id']}"))
-        count += 1
-    
-    markup.add(InlineKeyboardButton("➕ Add New Channel", callback_data="add_new"))
-    
-    if count == 0:
-        bot.send_message(ADMIN_ID, "No channels found. Click below to add one.", reply_markup=markup)
-    else:
-        bot.send_message(ADMIN_ID, "Your Managed Channels:", reply_markup=markup)
-
-@bot.message_handler(commands=['add'], func=lambda m: m.from_user.id == ADMIN_ID)
-def add_channel_start(message):
-    msg = bot.send_message(ADMIN_ID, "Please ensure the bot is an Admin in your channel, then FORWARD any message from that channel here.")
-    bot.register_next_step_handler(msg, get_plans)
-
-# Callback for Add New button
-@bot.callback_query_handler(func=lambda call: call.data == "add_new")
-def cb_add_new(call):
-    bot.answer_callback_query(call.id)
-    msg = bot.send_message(ADMIN_ID, "Please FORWARD any message from your channel here.")
-    bot.register_next_step_handler(msg, get_plans)
-
-def get_plans(message):
-    if message.forward_from_chat:
-        ch_id = message.forward_from_chat.id
-        ch_name = message.forward_from_chat.title
-        msg = bot.send_message(ADMIN_ID, 
-            f"Channel Detected: *{ch_name}*\n\nEnter plans in format (Minutes:Price):\n`Min:Price, Min:Price` \n\n"
-            "Example:\n`1440:99, 43200:199` (1 Day and 30 Days)", parse_mode="Markdown")
-        bot.register_next_step_handler(msg, finalize_channel, ch_id, ch_name)
-    else:
-        bot.send_message(ADMIN_ID, "❌ Error: Message was not forwarded. Use /add to try again.")
-
-def finalize_channel(message, ch_id, ch_name):
+# =========================================================================
+# 3. UTILITY FUNCTIONS
+# =========================================================================
+def to_eth_date(timestamp):
+    """Converts Unix timestamp to Ethiopian Date String"""
     try:
-        raw_plans = message.text.split(',')
-        plans_dict = {}
-        for p in raw_plans:
-            t, pr = p.strip().split(':')
-            plans_dict[t] = pr
-        
-        channels_col.update_one({"channel_id": ch_id}, {"$set": {"name": ch_name, "plans": plans_dict, "admin_id": ADMIN_ID}}, upsert=True)
-        bot_username = bot.get_me().username
-        bot.send_message(ADMIN_ID, f"✅ Setup Successful!\n\nInvite Link for users:\n`https://t.me/{bot_username}?start={ch_id}`", parse_mode="Markdown")
-    except:
-        bot.send_message(ADMIN_ID, "❌ Invalid format. Please use `Min:Price, Min:Price`. Use /add to retry.")
-
-# --- USER: PAYMENT FLOW ---
-
-@bot.callback_query_handler(func=lambda call: call.data.startswith('select_'))
-def user_pays(call):
-    _, ch_id, mins = call.data.split('_')
-    ch_data = channels_col.find_one({"channel_id": int(ch_id)})
-    price = ch_data['plans'][mins]
-    
-    qr_url = f"https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=upi://pay?pa={UPI_ID}%26am={price}%26cu=INR"
-    
-    markup = InlineKeyboardMarkup()
-    markup.add(InlineKeyboardButton("✅ I Have Paid", callback_data=f"paid_{ch_id}_{mins}"))
-    markup.add(InlineKeyboardButton("📞 Contact Admin", url=f"https://t.me/{CONTACT_USERNAME}"))
-    
-    bot.send_photo(call.message.chat.id, qr_url, 
-                   caption=f"Plan: {mins} Minutes\nPrice: ₹{price}\nUPI ID: `{UPI_ID}`\n\nPlease complete the payment and click 'I Have Paid'.", 
-                   reply_markup=markup, parse_mode="Markdown")
-
-@bot.callback_query_handler(func=lambda call: call.data.startswith('paid_'))
-def admin_notify(call):
-    _, ch_id, mins = call.data.split('_')
-    user = call.from_user
-    ch_data = channels_col.find_one({"channel_id": int(ch_id)})
-    price = ch_data['plans'][mins]
-    
-    markup = InlineKeyboardMarkup()
-    markup.add(InlineKeyboardButton("✅ Approve", callback_data=f"app_{user.id}_{ch_id}_{mins}"))
-    markup.add(InlineKeyboardButton("❌ Reject", callback_data=f"rej_{user.id}"))
-    
-    bot.send_message(ADMIN_ID, f"🔔 *Payment Verification Required!*\n\nUser: {user.first_name}\nChannel: {ch_data['name']}\nPlan: {mins} Mins\nPrice: ₹{price}", 
-                     reply_markup=markup, parse_mode="Markdown")
-    
-    u_markup = InlineKeyboardMarkup().add(InlineKeyboardButton("📞 Contact Admin", url=f"https://t.me/{CONTACT_USERNAME}"))
-    bot.send_message(call.message.chat.id, "✅ Your payment request has been sent. Please wait for Admin approval.", reply_markup=u_markup)
-
-# --- APPROVAL & EXPIRY ---
-
-@bot.callback_query_handler(func=lambda call: call.data.startswith('app_'))
-def approve_now(call):
-    _, u_id, ch_id, mins = call.data.split('_')
-    u_id, ch_id, mins = int(u_id), int(ch_id), int(mins)
-    
-    try:
-        expiry_datetime = datetime.now() + timedelta(minutes=mins)
-        expiry_ts = int(expiry_datetime.timestamp())
-
-        # Link expires when sub ends
-        link = bot.create_chat_invite_link(ch_id, member_limit=1, expire_date=expiry_ts)
-        
-        users_col.update_one({"user_id": u_id, "channel_id": ch_id}, {"$set": {"expiry": expiry_datetime.timestamp()}}, upsert=True)
-        
-        bot.send_message(u_id, f"🥳 *Payment Approved!*\n\nSubscription: {mins} Minutes\n\nJoin Link: {link.invite_link}\n\n⚠️ Note: This link and your access will expire in {mins} minutes.", parse_mode="Markdown")
-        bot.edit_message_text(f"✅ Approved user {u_id} for {mins} mins.", call.message.chat.id, call.message.message_id)
-        
+        dt = datetime.fromtimestamp(timestamp)
+        conv = EthiopianDateConverter.to_ethiopian(dt.year, dt.month, dt.day)
+        months = ["", "መስከረም", "ጥቅምት", "ህዳር", "ታህሳስ", "ጥር", "የካቲት", "መጋቢት", "ሚያዝያ", "ግንቦት", "ሰኔ", "ሐምሌ", "ነሐሴ", "ጳጉሜ"]
+        return f"{months[conv.month]} {conv.day}፣ {conv.year}"
     except Exception as e:
-        bot.send_message(ADMIN_ID, f"❌ Error: {e}")
+        logger.error(f"Date conversion error: {e}")
+        return "ያልታወቀ ቀን"
 
-@bot.callback_query_handler(func=lambda call: call.data.startswith('manage_'))
-def manage_ch(call):
-    ch_id = int(call.data.split('_')[1])
-    ch_data = channels_col.find_one({"channel_id": ch_id})
-    bot_username = bot.get_me().username
-    link = f"https://t.me/{bot_username}?start={ch_id}"
+def is_restriction_on():
+    """Checks if content protection is enabled"""
+    data = settings_col.find_one({"type": "config"})
+    return data.get("restriction", True) if data else True
+
+def get_channel_status_markup(user_id):
+    """Generates a list of channels with join status icons"""
+    markup = InlineKeyboardMarkup()
+    channels = list(channels_col.find())
     
-    bot.edit_message_text(f"Settings for: *{ch_data['name']}*\n\nYour Link: `{link}`\n\nTo edit prices, use /add and forward a message from this channel again.", 
-                          call.message.chat.id, call.message.message_id, parse_mode="Markdown")
+    if not channels:
+        markup.add(InlineKeyboardButton("ምንም ቻናል አልተጨመረም", callback_data="none"))
+        return markup
 
-# Automate Kicking
-def kick_expired_users():
-    now = datetime.now().timestamp()
-    expired_users = users_col.find({"expiry": {"$lte": now}})
-    bot_username = bot.get_me().username
-
-    for user in expired_users:
+    for ch in channels:
         try:
-            bot.ban_chat_member(user['channel_id'], user['user_id'])
-            bot.unban_chat_member(user['channel_id'], user['user_id'])
+            member = bot.get_chat_member(ch["id"], user_id)
+            if member.status in ['member', 'administrator', 'creator']:
+                status_icon = "✅"
+            else:
+                status_icon = "☑️"
             
-            rejoin_url = f"https://t.me/{bot_username}?start={user['channel_id']}"
-            markup = InlineKeyboardMarkup().add(InlineKeyboardButton("🔄 Re-join / Renew", url=rejoin_url))
+            # Create a unique invite link for the user
+            invite = bot.create_chat_invite_link(ch["id"], member_limit=1).invite_link
+            markup.add(InlineKeyboardButton(f"{status_icon} {ch['name']}", url=invite))
+        except Exception:
+            continue
             
-            bot.send_message(user['user_id'], "⚠️ Your subscription has expired.\n\nTo join again or renew, please click the button below:", reply_markup=markup)
-            users_col.delete_one({"_id": user['_id']})
-        except: pass
+    markup.add(InlineKeyboardButton("🔄 ሁሉም ቻናል መግባቶን ያረጋግጡ (Refresh)", callback_data="refresh_service"))
+    return markup
 
-# --- STARTUP ---
-if __name__ == '__main__':
-    keep_alive()
-    scheduler = BackgroundScheduler()
-    scheduler.add_job(kick_expired_users, 'interval', minutes=1)
-    scheduler.start()
-    bot.remove_webhook()
-    print("Bot is running...")
-    bot.infinity_polling(timeout=20, long_polling_timeout=10)
+# =========================================================================
+# 4. BACKGROUND WORKER (AUTO-KICK)
+# =========================================================================
+def auto_kick_worker():
+    """Continuously checks for expired subscriptions and removes users"""
+    while True:
+        try:
+            current_time = datetime.now().timestamp()
+            expired_users = users_col.find({"active": True, "expiry": {"$lt": current_time}})
+            
+            for user in expired_users:
+                uid = user["user_id"]
+                logger.info(f"Expiring user: {uid}")
+                
+                # Kick from all registered channels
+                for ch in list(channels_col.find()):
+                    try:
+                        bot.ban_chat_member(ch["id"], uid)
+                        bot.unban_chat_member(ch["id"], uid) # Unban so they can rejoin later
+                    except Exception as e:
+                        logger.error(f"Error kicking {uid} from {ch['id']}: {e}")
+                
+                # Update database
+                users_col.update_one({"user_id": uid}, {"$set": {"active": False}})
+                
+                # Notify user
+                try:
+                    msg = "<b>⚠️ የአገልግሎት ጊዜዎ አብቅቷል!</b>\n\nከVIP ቻናሎች በራስ-ሰር ተወግደዋል። አገልግሎቱን ለመቀጠል እባክዎ ደግመው ይክፈሉ እና ደረሰኝ ይላኩ።"
+                    bot.send_message(uid, msg)
+                except Exception:
+                    pass
+        except Exception as e:
+            logger.error(f"Auto-kick worker error: {e}")
+            
+        time.sleep(60) # Check every 60 seconds
+
+# =========================================================================
+# 5. KEYBOARDS
+# =========================================================================
+def main_menu_keyboard():
+    markup = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
+    markup.add(KeyboardButton("💎 VIP ለመመዝገብ"), KeyboardButton("👤 የእኔ አገልግሎት"))
+    markup.add(KeyboardButton("🎬 Addis Film Poster"), KeyboardButton("📜 VIP Channel ዝርዝር"))
+    markup.add(KeyboardButton("🆘 እገዛ (Help)"))
+    return markup
+
+def admin_panel_keyboard():
+    markup = InlineKeyboardMarkup(row_width=2)
+    markup.add(
+        InlineKeyboardButton("📊 የደንበኞች ዝርዝር", callback_data="adm_list"),
+        InlineKeyboardButton("📢 ብሮድካስት", callback_data="adm_bc")
+    )
+    markup.add(
+        InlineKeyboardButton("➕ ቻናል ጨምር", callback_data="adm_add_ch"),
+        InlineKeyboardButton("➖ ቻናል ቀንስ", callback_data="adm_rem_ch")
+    )
+    res_text = "🚫 Restriction: ON" if is_restriction_on() else "🔓 Restriction: OFF"
+    markup.add(InlineKeyboardButton(res_text, callback_data="adm_toggle_res"))
+    markup.add(InlineKeyboardButton("👤 ተጠቃሚ ማባረር (Manual)", callback_data="adm_manual_remove"))
+
+    return markup
+
+# =========================================================================
+# 6. MESSAGE HANDLERS
+# =========================================================================
+@bot.message_handler(commands=['start'])
+def handle_start(message):
+    uid = message.chat.id
+    first_name = message.from_user.first_name
+    
+    welcome_text = (
+        f"<b>ሰላም {first_name}፣ እንኳን ወደ Gett VIP Bot በሰላም መጡ!</b>\n\n"
+        "ይህ ቦት የVIP ቻናሎቻችንን በክፍያ ለመቀላቀል እና አገልግሎትዎን ለመቆጣጠር ይረዳዎታል። "
+        "ለመጀመር ከታች ካሉት አማራጮች አንዱን ይምረጡ።"
+    )
+    bot.send_message(uid, welcome_text, reply_markup=main_menu_keyboard())
+    
+    if uid == ADMIN_ID:
+        bot.send_message(ADMIN_ID, "<b>🛠 Master Admin Panel:</b>", reply_markup=admin_panel_keyboard())
+
+@bot.message_handler(func=lambda m: m.text == "👤 የእኔ አገልግሎት")
+def handle_my_service(message):
+    uid = message.from_user.id
+    user_data = users_col.find_one({"user_id": uid})
+    
+    if not user_data or not user_data.get("active"):
+        bot.send_message(uid, "<b>ሰላም፣ እስካሁን የGett VIP አባል አልሆኑም ወይም ጊዜዎ አልቋል።</b>\n\nአባል ለመሆን '💎 VIP ለመመዝገብ' የሚለውን ይጫኑ።")
+        return
+    
+    expiry_str = to_eth_date(user_data["expiry"])
+    plan_name = PLANS.get(user_data.get("plan"), {"name": "ያልታወቀ"})["name"]
+    
+    status_text = (
+        f"<b>👤 ስም፦</b> {message.from_user.first_name}\n"
+        f"<b>💎 የአባልነት አይነት፦</b> {plan_name}\n"
+        f"<b>⏳ የሚያበቃው፦</b> {expiry_str}\n\n"
+        f"<b>ሁኔታዎች፦</b>\n✅ - ቻናሉ ውስጥ ገብተዋል\n☑️ - ቻናሉ ውስጥ አልገቡም\n\n"
+        f"ሊንኮቹን በመጫን ይቀላቀሉ 👇"
+    )
+    bot.send_message(uid, status_text, reply_markup=get_channel_status_markup(uid), protect_content=is_restriction_on())
+
+@bot.message_handler(func=lambda m: m.text == "💎 VIP ለመመዝገብ")
+def handle_registration(message):
+    markup = InlineKeyboardMarkup()
+    for key, val in PLANS.items():
+        markup.add(InlineKeyboardButton(f"💳 {val['name']}", callback_data=f"buy_{key}"))
+    
+    bot.send_message(message.chat.id, "<b>ለመመዝገብ የሚፈልጉትን ጥቅል ይምረጡ፦</b>", reply_markup=markup)
+
+@bot.message_handler(func=lambda m: m.text == "📜 VIP Channel ዝርዝር")
+def handle_channel_list(message):
+    channels = list(channels_col.find())
+    if not channels:
+        bot.send_message(message.chat.id, "<b>❌ እስካሁን ምንም ቻናል አልተመዘገበም።</b>")
+        return
+        
+    markup = InlineKeyboardMarkup()
+    for ch in channels:
+        # በዳታቤዝህ 'id' ስለሚል ch['id'] ተጠቅሜያለሁ
+        markup.add(InlineKeyboardButton(f"🔹 {ch['name']}", callback_data=f"view_ch_{ch['id']}"))
+        
+    bot.send_message(message.chat.id, "<b>📜 የVIP ቻናሎች ዝርዝር፦</b>\nስለ ቻናሉ ለማወቅ ስሙን ይጫኑ 👇", 
+                     reply_markup=markup)
+
+# =========================================================================
+# 7. CALLBACK QUERY HANDLER
+# =========================================================================
+@bot.callback_query_handler(func=lambda call: True)
+def handle_all_callbacks(call):
+    uid, mid = call.from_user.id, call.message.message_id
+    
+    # User: Plan Selection
+    if call.data.startswith("buy_"):
+        plan_id = call.data.split("_")[1]
+        users_col.update_one({"user_id": uid}, {"$set": {"pending_plan": plan_id}}, upsert=True)
+        
+        bank_markup = InlineKeyboardMarkup(row_width=2)
+        bank_markup.add(
+            InlineKeyboardButton("🏦 CBE (ንግድ ባንክ)", callback_data="pay_cbe"),
+            InlineKeyboardButton("🏦 Abyssinia (አቢሲኒያ)", callback_data="pay_aby")
+        )
+        bank_markup.add(InlineKeyboardButton("📱 Telebirr (ቴሌብር)", callback_data="pay_tele"))
+        
+        bot.edit_message_text("<b>ለመክፈል የሚፈልጉትን የባንክ አይነት ይምረጡ፦</b>", uid, mid, reply_markup=bank_markup)
+
+    # User: Payment Method
+    elif call.data.startswith("pay_"):
+        method = call.data.split("_")[1]
+        if method == "cbe":
+            acc_info = "<b>🏦 የኢትዮጵያ ንግድ ባንክ (CBE)</b>\n👤 ስም: Getamesay Fikru\n🔢 Acc: <code>1000355140206</code>"
+        elif method == "aby":
+            acc_info = "<b>🏦 አቢሲኒያ ባንክ (Abyssinia)</b>\n👤 ስም: Getamesay Fikru\n🔢 Acc: <code>167829104</code>"
+        else:
+            acc_info = "<b>📱 ቴሌብር (Telebirr)</b>\n👤 ስም: Getamesay Fikru\n🔢 ስልክ: <code>0965979124</code>"
+            
+        instruction = f"{acc_info}\n\n<b>📸 ክፍያውን ከፈጸሙ በኋላ የደረሰኙን ፎቶ (Screenshot) እዚህ ይላኩ።</b>\n\nለመሰረዝ /cancel ይበሉ።"
+        bot.edit_message_text(instruction, uid, mid)
+        bot.register_next_step_handler(call.message, get_payment_screenshot)
+
+    # Admin: List Users
+    elif call.data == "adm_users" or call.data == "adm_list":
+        active_users = list(users_col.find({"active": True}))
+        if not active_users:
+            bot.send_message(ADMIN_ID, "ምንም ገባሪ ደንበኛ የለም።")
+            return
+            
+        bot.send_message(ADMIN_ID, f"<b>📋 የደንበኞች ዝርዝር ({len(active_users)}):</b>")
+        for u in active_users:
+            u_id = u["user_id"]
+            plan = PLANS.get(u.get("plan"), {"name": "N/A"})["name"]
+            exp = to_eth_date(u["expiry"])
+            
+            manage_markup = InlineKeyboardMarkup().add(
+                InlineKeyboardButton("❌ አስወግድ (Remove)", callback_data=f"adm_kick_{u_id}")
+            )
+            
+            detail = (
+                f"👤 <b>ሊንክ፦</b> <a href='tg://user?id={u_id}'>ተጠቃሚውን እዚህ ይጫኑ</a>\n"
+                f"🆔 <b>ID፦</b> <code>{u_id}</code>\n"
+                f"💰 <b>ጥቅል፦</b> {plan}\n"
+                f"⏳ <b>ማብቂያ፦</b> {exp}"
+            )
+            bot.send_message(ADMIN_ID, detail, reply_markup=manage_markup)
+
+    # Admin: Remove User
+    elif call.data.startswith("adm_kick_"):
+        target_id = int(call.data.split("_")[2])
+        users_col.update_one({"user_id": target_id}, {"$set": {"active": False, "expiry": 0}})
+        
+        # Kick from channels
+        for ch in list(channels_col.find()):
+            try:
+                bot.ban_chat_member(ch["id"], target_id)
+                bot.unban_chat_member(ch["id"], target_id)
+            except: pass
+            
+        bot.answer_callback_query(call.id, "ተጠቃሚው ተወግዷል።")
+        bot.edit_message_text(f"✅ ተጠቃሚ {target_id} ከአገልግሎት ተወግዷል።", ADMIN_ID, mid)
+
+    # Admin: Add Channel
+    elif call.data == "adm_add_ch":
+        msg = bot.send_message(ADMIN_ID, "እባክዎ መጨመር ከሚፈልጉት ቻናል አንድ መልዕክት ፎርዋርድ ያድርጉልኝ፦")
+        bot.register_next_step_handler(msg, process_add_channel)
+
+    # Admin: Remove Channel List
+    elif call.data == "adm_rem_ch":
+        markup = InlineKeyboardMarkup()
+        for ch in list(channels_col.find()):
+            markup.add(InlineKeyboardButton(f"❌ {ch['name']}", callback_data=f"adm_confirm_del_{ch['id']}"))
+        bot.edit_message_text("መሰረዝ የሚፈልጉትን ቻናል ይምረጡ፦", ADMIN_ID, mid, reply_markup=markup)
+
+    # Admin: Confirm Channel Delete
+    elif call.data.startswith("adm_confirm_del_"):
+        ch_id = call.data.split("_")[3]
+        markup = InlineKeyboardMarkup().add(
+            InlineKeyboardButton("አዎ ሰርዝ", callback_data=f"adm_do_del_{ch_id}"),
+            InlineKeyboardButton("አይ ተመለስ", callback_data="adm_rem_ch")
+        )
+        bot.edit_message_text("<b>እርግጠኛ ነዎት ይህ ቻናል ይጥፋ?</b>", ADMIN_ID, mid, reply_markup=markup)
+
+    # Admin: Execute Delete
+    elif call.data.startswith("adm_do_del_"):
+        ch_id = int(call.data.split("_")[3])
+        channels_col.delete_one({"id": ch_id})
+        bot.answer_callback_query(call.id, "ቻናሉ ተሰርዟል!")
+        bot.edit_message_text("✅ ቻናሉ በስኬት ተሰርዟል።", ADMIN_ID, mid)
+
+    # Admin: Toggle Restriction
+    elif call.data == "adm_toggle_res":
+        current = is_restriction_on()
+        settings_col.update_one({"type": "config"}, {"$set": {"restriction": not current}}, upsert=True)
+        bot.answer_callback_query(call.id, "Restriction Status Updated!")
+        bot.edit_message_reply_markup(ADMIN_ID, mid, reply_markup=admin_panel_keyboard())
+
+        # Admin: Manual Remove User
+    elif call.data == "adm_manual_remove":
+        msg = bot.send_message(ADMIN_ID, "እባክዎ ማስወገድ የሚፈልጉትን ተጠቃሚ ID (User ID) ይላኩ፦\n(ለመለሰረዝ /cancel ይበሉ)")
+        bot.register_next_step_handler(msg, process_manual_remove)
+
+
+  # User: Approve Payment (By Admin)
+    elif call.data.startswith("approve_"):
+        _, target_id, plan_id = call.data.split("_")
+        target_id = int(target_id)
+        
+        days = PLANS[plan_id]["days"]
+        expiry_ts = (datetime.now() + timedelta(days=days)).timestamp()
+        
+        # የዳታቤዝ ማሻሻያ
+        users_col.update_one(
+            {"user_id": target_id},
+            {"$set": {"active": True, "expiry": expiry_ts, "plan": plan_id, "joined_at": time.time()}},
+            upsert=True
+        )
+        
+        # መረጃውን ከዳታቤዝ እናምጣ
+        u = users_col.find_one({"user_id": target_id})
+        
+        # ያዘዝከኝ መልዕክት (ያለ ምንም ለውጥ)
+        msg = (
+            f"<b>✅ እንኳን ደስ አለዎት! ክፍያዎ ተረጋግጧል።</b>\n\n"
+            f"👤 ስም: {call.from_user.first_name}\n" 
+            f"📅 የገቡበት: {to_eth_date(u.get('joined_at', time.time()))}\n" 
+            f"⏳ የሚያበቃው {to_eth_date(u['expiry'])}\n\n" 
+            f"☑️ - ቻናል ውስጥ አልገቡም\n"
+            f"✅ - ቻናል ውስጥ ገብተዋል\n\n" 
+            f"የሁሉንም ቻናሎች ሊንኮች ከታች ይገናኛሉ🔻"
+        )
+        
+        bot.send_message(target_id, msg, reply_markup=get_channel_status_markup(target_id))
+        bot.edit_message_text(f"✅ ተጠቃሚ {target_id} ጸድቋል!", ADMIN_ID, mid)
+
+    # User: Reject Payment (By Admin)
+    elif call.data.startswith("reject_"):
+        target_id = int(call.data.split("_")[1])
+        markup = InlineKeyboardMarkup()
+        markup.add(
+            InlineKeyboardButton("🚫 የደረሰኝ ስህተት", callback_data=f"rj_msg_{target_id}_receipt"),
+            InlineKeyboardButton("📉 ብር አነስተኛ ነው", callback_data=f"rj_msg_{target_id}_amount")
+        )
+        markup.add(InlineKeyboardButton("✍️ የራስህን መልዕክት ጻፍ", callback_data=f"rj_custom_{target_id}"))
+        bot.edit_message_text("ውድቅ የተደረገበትን ምክንያት ይምረጡ፦", ADMIN_ID, mid, reply_markup=markup)
+
+    # User: View Description with Real-time Update
+    elif call.data.startswith("view_ch_"):
+        ch_id = int(call.data.split("_")[2])
+        try:
+            # የቻናሉን Bio/Description ቀጥታ ከቴሌግራም ያመጣል
+            info = bot.get_chat(ch_id)
+            description = info.description if info.description else "ለዚህ ቻናል ምንም መግለጫ አልተጻፈም።"
+            
+            # በፖፕ-አፕ (Alert) ያሳያል
+            bot.answer_callback_query(call.id, f"📝 የቻናሉ መግለጫ፦\n\n{description}", show_alert=True)
+        except Exception as e:
+            logger.error(f"Description error: {e}")
+            bot.answer_callback_query(call.id, "❌ መረጃውን ማግኘት አልተቻለም። ቦቱ በቻናሉ ላይ አድሚን መሆኑን ያረጋግጡ።", show_alert=True)
+
+# =========================================================================
+# 8. PAYMENT & ADMIN PROCESSES
+# =========================================================================
+def get_payment_screenshot(message):
+    if message.text == "/cancel":
+        bot.send_message(message.chat.id, "ሂደቱ ተሰርዟል።", reply_markup=main_menu_keyboard())
+        return
+    
+    if not message.photo:
+        bot.send_message(message.chat.id, "⚠️ እባክዎ የደረሰኙን ፎቶ (Screenshot) ብቻ ይላኩ!")
+        bot.register_next_step_handler(message, get_payment_screenshot)
+        return
+    
+    bot.send_message(message.chat.id, "<b>✅ ደረሰኙን ተቀብያለሁ!</b>\nአሁን ደግሞ የከፈሉበትን ሙሉ ስም በ አማርኛ ወይም በእንግሊዝኛ ይላኩ፦")
+    bot.register_next_step_handler(message, lambda m: collect_name_and_submit(m, message))
+
+def collect_name_and_submit(message, photo_msg):
+    uid, name = message.from_user.id, message.text
+    if message.text == "/cancel": return
+    
+    markup = ReplyKeyboardMarkup(resize_keyboard=True).add("ሁሉንም ነገር ጨርሻለሁ ላክ")
+    bot.send_message(uid, f"ተቀብያለሁ <b>{name}</b>! ለመጨረስ ከታች ያለውን ቁልፍ ይጫኑ።", reply_markup=markup)
+    bot.register_next_step_handler(message, lambda m: finalize_submission(m, photo_msg, name))
+
+def finalize_submission(message, photo_msg, full_name):
+    uid = message.from_user.id
+    if message.text != "ሁሉንም ነገር ጨርሻለሁ ላክ":
+        bot.send_message(uid, "እባክዎ 'ሁሉንም ነገር ጨርሻለሁ ላክ' የሚለውን ይጫኑ።", reply_markup=ReplyKeyboardMarkup(resize_keyboard=True).add("ሁሉንም ነገር ጨርሻለሁ ላክ"))
+        bot.register_next_step_handler(message, lambda m: finalize_submission(m, photo_msg, full_name))
+        return
+
+    user_data = users_col.find_one({"user_id": uid})
+    plan_id = user_data.get("pending_plan", "plan1")
+    plan_name = PLANS[plan_id]["name"]
+    
+    approve_markup = InlineKeyboardMarkup().add(
+        InlineKeyboardButton("✅ Approve", callback_data=f"approve_{uid}_{plan_id}"),
+        InlineKeyboardButton("❌ Reject", callback_data=f"reject_{uid}")
+    )
+    
+    admin_msg = (
+        "<b>💰 አዲስ የክፍያ ጥያቄ!</b>\n\n"
+        f"👤 <b>ስም፦</b> {full_name}\n"
+        f"🆔 <b>ID፦</b> <a href='tg://user?id={uid}'>{uid}</a>\n"
+        f"💎 <b>ጥቅል፦</b> {plan_name}"
+    )
+    
+    bot.send_message(ADMIN_ID, admin_msg)
+    bot.forward_message(ADMIN_ID, uid, photo_msg.message_id)
+    bot.send_message(ADMIN_ID, "ያረጋግጡ፦", reply_markup=approve_markup)
+    
+    bot.send_message(uid, "<b>✅ በስኬት ተልኳል!</b>\nአድሚኑ ደረሰኙን አይቶ በቅርቡ ያረጋግጥልዎታል።", reply_markup=main_menu_keyboard())
+
+def process_add_channel(message):
+    if not message.forward_from_chat:
+        bot.send_message(ADMIN_ID, "❌ ስህተት! እባክዎ መልዕክቱን ከቻናሉ ፎርዋርድ ያድርጉት። (ቻናሉ ላይ አድሚን መሆንዎን እና ፎርዋርድ መፈቀዱን ያረጋግጡ)")
+        return
+    
+    ch_id = message.forward_from_chat.id
+    ch_name = message.forward_from_chat.title
+    
+    channels_col.update_one({"id": ch_id}, {"$set": {"name": ch_name}}, upsert=True)
+    bot.send_message(ADMIN_ID, f"✅ ቻናል <b>{ch_name}</b> (ID: {ch_id}) በስኬት ተጨምሯል!")
+
+def process_manual_remove(message):
+    uid_text = message.text.strip()
+    
+    if uid_text == "/cancel":
+        bot.send_message(ADMIN_ID, "ሂደቱ ተሰርዟል!", reply_markup=admin_panel_keyboard())
+        return
+
+    if not uid_text.isdigit():
+        bot.send_message(ADMIN_ID, "❌ ስህተት! እባክዎ ትክክለኛ የቁጥር ID ብቻ ያስገቡ።")
+        bot.register_next_step_handler(message, process_manual_remove)
+        return
+
+    target_id = int(uid_text)
+    
+    # 1. ከዳታቤዝ አገልግሎቱን ማቋረጥ
+    users_col.update_one({"user_id": target_id}, {"$set": {"active": False, "expiry": 0}})
+    
+    # 2. ከሁሉም VIP ቻናሎች ማስወገድ
+    success_count = 0
+    channels = list(channels_col.find())
+    
+    for ch in channels:
+        try:
+            bot.ban_chat_member(ch["id"], target_id)
+            bot.unban_chat_member(ch["id"], target_id) 
+            success_count += 1
+        except Exception:
+            continue
+
+    bot.send_message(ADMIN_ID, f"✅ ተጠቃሚ {target_id} ከ {success_count} ቻናሎች ተወግዷል፤ በዳታቤዝም አገልግሎቱ ተዘግቷል።", reply_markup=admin_panel_keyboard())
+
+
+# =========================================================================
+# 9. RUN BOT
+# =========================================================================
+if __name__ == "__main__":
+    logger.info("Starting Gett VIP Pro Bot...")
+    
+    # Start Keep Alive Server
+    start_keep_alive()
+    
+    # Start Expiration Checker
+    kick_thread = threading.Thread(target=auto_kick_worker, daemon=True)
+    kick_thread.start()
+    
+    # Start Polling
+    while True:
+        try:
+            bot.polling(none_stop=True, interval=0, timeout=20)
+        except Exception as e:
+            logger.error(f"Polling Error: {e}")
+            time.sleep(15)
+
