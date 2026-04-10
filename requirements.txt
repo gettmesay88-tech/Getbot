@@ -1,4 +1,5 @@
 pyTelegramBotAPI
-pymongo[srv]
-apscheduler
+pymongo
 flask
+ethiopian-date
+gunicorn
