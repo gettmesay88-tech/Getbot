@@ -393,18 +393,14 @@ def handle_all_callbacks(call):
         bot.edit_message_text("ውድቅ የተደረገበትን ምክንያት ይምረጡ፦", ADMIN_ID, mid, reply_markup=markup)
 
     # User: View Description with Real-time Update
+    # User: View Description
     elif call.data.startswith("view_ch_"):
         try:
             ch_id = int(call.data.split("_")[2])
-            # ቀጥታ ከቴሌግራም ሰርቨር መረጃውን ለመውሰድ ይሞክራል
             info = bot.get_chat(ch_id)
             description = info.description if info.description else "ለዚህ ቻናል ምንም መግለጫ አልተጻፈም።"
-            
             bot.answer_callback_query(call.id, f"📝 የቻናሉ መግለጫ፦\n\n{description}", show_alert=True)
-            
         except Exception as e:
-            logger.error(f"Description error: {e}")
-            # ስህተቱ ምን እንደሆነ ለተጠቃሚው ያሳያል
             bot.answer_callback_query(call.id, f"❌ መግለጫውን ማግኘት አልተቻለም።\nምክንያት፦ {e}", show_alert=True)
 # =========================================================================
 # 8. PAYMENT & ADMIN PROCESSES
