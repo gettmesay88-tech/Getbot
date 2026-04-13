@@ -394,18 +394,18 @@ def handle_all_callbacks(call):
 
     # User: View Description with Real-time Update
     elif call.data.startswith("view_ch_"):
-        ch_id = int(call.data.split("_")[2])
         try:
-            # የቻናሉን Bio/Description ቀጥታ ከቴሌግራም ያመጣል
+            ch_id = int(call.data.split("_")[2])
+            # ቀጥታ ከቴሌግራም ሰርቨር መረጃውን ለመውሰድ ይሞክራል
             info = bot.get_chat(ch_id)
             description = info.description if info.description else "ለዚህ ቻናል ምንም መግለጫ አልተጻፈም።"
             
-            # በፖፕ-አፕ (Alert) ያሳያል
             bot.answer_callback_query(call.id, f"📝 የቻናሉ መግለጫ፦\n\n{description}", show_alert=True)
+            
         except Exception as e:
             logger.error(f"Description error: {e}")
-            bot.answer_callback_query(call.id, "❌ መረጃውን ማግኘት አልተቻለም። ቦቱ በቻናሉ ላይ አድሚን መሆኑን ያረጋግጡ።", show_alert=True)
-
+            # ስህተቱ ምን እንደሆነ ለተጠቃሚው ያሳያል
+            bot.answer_callback_query(call.id, f"❌ መግለጫውን ማግኘት አልተቻለም።\nምክንያት፦ {e}", show_alert=True)
 # =========================================================================
 # 8. PAYMENT & ADMIN PROCESSES
 # =========================================================================
