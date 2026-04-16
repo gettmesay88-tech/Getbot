@@ -352,6 +352,22 @@ def handle_all_callbacks(call):
         msg = bot.send_message(ADMIN_ID, "እባክዎ ማስወገድ የሚፈልጉትን ተጠቃሚ ID (User ID) ይላኩ፦\n(ለመለሰረዝ /cancel ይበሉ)")
         bot.register_next_step_handler(msg, process_manual_remove)
 
+    elif call.data == "adm_sync_names":
+        bot.answer_callback_query(call.id, "የቻናል ስሞችን የማደስ ስራ እየተሰራ ነው...")
+        channels = list(channels_col.find())
+        updated_count = 0
+        
+        for ch in channels:
+            try:
+                # ከቴሌግራም ወቅታዊውን ስም መውሰድ
+                chat_info = bot.get_chat(ch["id"])
+                # ዳታቤዝ ላይ ስሙን ማዘመን
+                channels_col.update_one({"id": ch["id"]}, {"$set": {"name": chat_info.title}})
+                updated_count += 1
+            except Exception:
+                continue
+                
+        bot.send_message(ADMIN_ID, f"✅ የ {updated_count} ቻናሎች ስም በስኬት ታድሷል!\nአሁን ለሁሉም ተጠቃሚዎች አዲሱ ስም ይታያል።")
 
   # User: Approve Payment (By Admin)
     elif call.data.startswith("approve_"):
