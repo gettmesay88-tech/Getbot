@@ -84,7 +84,7 @@ def is_restriction_on():
     return data.get("restriction", True) if data else True
 
 def get_channel_status_markup(user_id):
-    """Generates a list of channels with join status icons"""
+    """Generates a list of channels with join status icons and auto-updated names"""
     markup = InlineKeyboardMarkup()
     channels = list(channels_col.find())
     
@@ -94,20 +94,32 @@ def get_channel_status_markup(user_id):
 
     for ch in channels:
         try:
+            # የቻናሉን ወቅታዊ መረጃ ከቴሌግራም ቀጥታ መውሰድ (ስሙ ቢቀየርም እዚህ ጋር ይስተካከላል)
+            chat_info = bot.get_chat(ch["id"])
+            current_name = chat_info.title
+            
             member = bot.get_chat_member(ch["id"], user_id)
             if member.status in ['member', 'administrator', 'creator']:
                 status_icon = "✅"
             else:
                 status_icon = "☑️"
             
-            # Create a unique invite link for the user
+            # አዲስ የኢንቫይት ሊንክ መፍጠር
             invite = bot.create_chat_invite_link(ch["id"], member_limit=1).invite_link
-            markup.add(InlineKeyboardButton(f"{status_icon} {ch['name']}", url=invite))
-        except Exception:
+            
+            # በዳታቤዝ ውስጥ ያለው ስም ቢቀየርም በቴሌግራም ያለውን ትክክለኛ ስም (current_name) ያሳያል
+            markup.add(InlineKeyboardButton(f"{status_icon} {current_name}", url=invite))
+            
+            # (አማራጭ) ዳታቤዝህ ላይ ያለው ስም እንዲታደስ ከፈለግክ ይህን መስመር መጠቀም ትችላለህ
+            # channels_col.update_one({"id": ch["id"]}, {"$set": {"name": current_name}})
+            
+        except Exception as e:
+            logger.error(f"Error fetching channel {ch['id']}: {e}")
             continue
             
     markup.add(InlineKeyboardButton("🔄 ሁሉም ቻናል መግባቶን ያረጋግጡ (Refresh)", callback_data="refresh_service"))
     return markup
+
 
 # =========================================================================
 # 4. BACKGROUND WORKER (AUTO-KICK)
