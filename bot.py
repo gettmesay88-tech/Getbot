@@ -231,8 +231,8 @@ def handle_channel_list(message):
         
     markup = InlineKeyboardMarkup()
     for ch in channels:
-        # በዳታቤዝህ 'id' ስለሚል ch['id'] ተጠቅሜያለሁ
-        markup.add(InlineKeyboardButton(f"🔹 {ch['name']}", callback_data=f"view_ch_{ch['id']}"))
+        # ዳታቤዝ ላይ ያለውን (የታደሰውን) ስም ይጠቀማል
+        markup.add(InlineKeyboardButton(f"🔹 {ch.get('name', 'Channel')}", callback_data=f"view_ch_{ch['id']}"))
         
     bot.send_message(message.chat.id, "<b>📜 የVIP ቻናሎች ዝርዝር፦</b>\nስለ ቻናሉ ለማወቅ ስሙን ይጫኑ 👇", 
                      reply_markup=markup)
