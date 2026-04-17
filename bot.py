@@ -500,29 +500,6 @@ def finalize_submission(message, photo_msg, full_name):
     
     bot.send_message(uid, "<b>✅ በስኬት ተልኳል!</b>\nአድሚኑ ደረሰኙን አይቶ በቅርቡ ያረጋግጥልዎታል።", reply_markup=main_menu_keyboard())
 
-def process_add_channel(message):
-    if not message.forward_from_chat:
-        bot.send_message(ADMIN_ID, "❌ ስህተት! እባክዎ መልዕክቱን ከቻናሉ ፎርዋርድ ያድርጉት።")
-        return
-    
-    ch_id = message.forward_from_chat.id
-    ch_name = message.forward_from_chat.title
-    
-    try:
-        # ቦቱ መረጃ ማንበብ እንደሚችል ያረጋግጣል
-        bot.get_chat(ch_id)
-        
-        # ዳታቤዝ ላይ መረጃውን ማደስ
-        channels_col.update_one(
-            {"id": ch_id}, 
-            {"$set": {"name": ch_name, "id": ch_id}}, 
-            upsert=True
-        )
-        bot.send_message(ADMIN_ID, f"✅ ቻናል <b>{ch_name}</b> በስኬት ተጨምሯል!")
-        
-    except Exception as e:
-        bot.send_message(ADMIN_ID, f"❌ ስህተት፦ ቦቱ በቻናሉ ላይ አድሚን መሆኑን ያረጋግጡ።\nምክንያት፦ {e}")
-        
 def process_manual_remove(message):
     uid_text = message.text.strip()
     
