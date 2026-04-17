@@ -147,6 +147,13 @@ def auto_kick_worker():
 # =========================================================================
 # 5. KEYBOARDS
 # =========================================================================
+def main_menu_keyboard():
+    markup = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
+    markup.add(KeyboardButton("💎 VIP ለመመዝገብ"), KeyboardButton("👤 የእኔ አገልግሎት"))
+    markup.add(KeyboardButton("🎬 Addis Film Poster"), KeyboardButton("📜 VIP Channel ዝርዝር"))
+    markup.add(KeyboardButton("🆘 እገዛ (Help)"))
+    return markup
+
 def admin_panel_keyboard():
     markup = InlineKeyboardMarkup(row_width=2)
     markup.add(
@@ -154,23 +161,16 @@ def admin_panel_keyboard():
         InlineKeyboardButton("📢 ብሮድካስት", callback_data="adm_bc")
     )
     markup.add(
-        InlineKeyboardButton("➕ ቻናል በብዛት", callback_data="adm_add_bulk"),
+        InlineKeyboardButton("➕ ቻናል ጨምር", callback_data="adm_add_ch"),
         InlineKeyboardButton("➖ ቻናል ቀንስ", callback_data="adm_rem_ch")
     )
-    markup.add(
-        InlineKeyboardButton("🔄 ስም Sync", callback_data="adm_sync_names")
-    )
+    # የቻናል ስሞችን ማደሻ አዲሱ በተን
+    markup.add(InlineKeyboardButton("🔄 የቻናል ስሞችን አድስ (Sync)", callback_data="adm_sync_names"))
     
     res_text = "🚫 Restriction: ON" if is_restriction_on() else "🔓 Restriction: OFF"
     markup.add(InlineKeyboardButton(res_text, callback_data="adm_toggle_res"))
-    markup.add(InlineKeyboardButton("👤 ተጠቃሚ ማባረር", callback_data="adm_manual_remove"))
-    return markup
+    markup.add(InlineKeyboardButton("👤 ተጠቃሚ ማባረር (Manual)", callback_data="adm_manual_remove"))
 
-def main_menu_keyboard():
-    markup = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
-    markup.add(KeyboardButton("💎 VIP ለመመዝገብ"), KeyboardButton("👤 የእኔ አገልግሎት"))
-    markup.add(KeyboardButton("🎬 Addis Film Poster"), KeyboardButton("📜 VIP Channel ዝርዝር"))
-    markup.add(KeyboardButton("🆘 እገዛ (Help)"))
     return markup
 
 
@@ -230,14 +230,11 @@ def handle_channel_list(message):
         
     markup = InlineKeyboardMarkup()
     for ch in channels:
-        # የቻናል ስም እና የመጨረሻ ፖስት በተን ጎን ለጎን
-        name_btn = InlineKeyboardButton(f"🔹 {ch.get('name', 'Channel')}", callback_data=f"view_ch_{ch['id']}")
-        last_post_btn = InlineKeyboardButton("🖼 የመጨረሻ Post", callback_data=f"last_post_{ch['id']}")
-        markup.row(name_btn, last_post_btn)
+        # ዳታቤዝ ላይ ያለውን (የታደሰውን) ስም ይጠቀማል
+        markup.add(InlineKeyboardButton(f"🔹 {ch.get('name', 'Channel')}", callback_data=f"view_ch_{ch['id']}"))
         
-    bot.send_message(message.chat.id, "<b>📜 የVIP ቻናሎች ዝርዝር፦</b>\n\nመግለጫ ለማየት ስሙን፣ የመጨረሻውን ፖስት ለማየት ደግሞ በተኑን ይጫኑ 👇", 
+    bot.send_message(message.chat.id, "<b>📜 የVIP ቻናሎች ዝርዝር፦</b>\nስለ ቻናሉ ለማወቅ ስሙን ይጫኑ 👇", 
                      reply_markup=markup)
-
 
 # =========================================================================
 # 7. CALLBACK QUERY HANDLER
@@ -313,6 +310,11 @@ def handle_all_callbacks(call):
             
         bot.answer_callback_query(call.id, "ተጠቃሚው ተወግዷል።")
         bot.edit_message_text(f"✅ ተጠቃሚ {target_id} ከአገልግሎት ተወግዷል።", ADMIN_ID, mid)
+
+    # Admin: Add Channel
+    elif call.data == "adm_add_ch":
+        msg = bot.send_message(ADMIN_ID, "እባክዎ መጨመር ከሚፈልጉት ቻናል አንድ መልዕክት ፎርዋርድ ያድርጉልኝ፦")
+        bot.register_next_step_handler(msg, process_add_channel)
 
     # Admin: Remove Channel List
     elif call.data == "adm_rem_ch":
@@ -409,7 +411,8 @@ def handle_all_callbacks(call):
         markup.add(InlineKeyboardButton("✍️ የራስህን መልዕክት ጻፍ", callback_data=f"rj_custom_{target_id}"))
         bot.edit_message_text("ውድቅ የተደረገበትን ምክንያት ይምረጡ፦", ADMIN_ID, mid, reply_markup=markup)
 
-        # 1. የቻናሉን መግለጫ (Description) ለማየት (ይህ የነበረው ነው)
+    # User: View Description with Real-time Update
+    # User: View Description
     elif call.data.startswith("view_ch_"):
         try:
             ch_id = int(call.data.split("_")[2])
@@ -417,31 +420,7 @@ def handle_all_callbacks(call):
             description = info.description if info.description else "ለዚህ ቻናል ምንም መግለጫ አልተጻፈም።"
             bot.answer_callback_query(call.id, f"📝 የቻናሉ መግለጫ፦\n\n{description}", show_alert=True)
         except Exception as e:
-            bot.answer_callback_query(call.id, f"❌ መግለጫውን ማግኘት አልተቻለም።", show_alert=True)
-
-    # 2. የመጨረሻውን ፖስት ቅድመ እይታ (Preview) ለማየት (ይህ አዲሱ ነው)
-    elif call.data.startswith("last_post_"):
-        try:
-            ch_id = int(call.data.split("_")[2])
-            bot.answer_callback_query(call.id, "የመጨረሻውን ፖስት በማምጣት ላይ...")
-            
-            chat_info = bot.get_chat(ch_id)
-            
-            # ቦቱ በቻናሉ ውስጥ አድሚን ስለሆነ የመጨረሻውን ፖስት ገልብጦ (Copy) ይልካል
-            # ማሳሰቢያ፡ ቴሌግራም ቦት API የመጨረሻውን Message ID በቀጥታ አይሰጥም
-            # ነገር ግን ቻናሉ ላይ ያለውን የቅርብ ጊዜ መረጃ እንዲህ ማሳየት ትችላለህ፡
-            
-            preview_text = (
-                f"<b>🎬 የ {chat_info.title} የቅርብ ጊዜ መረጃ</b>\n\n"
-                f"ይህ ቻናል በአሁኑ ሰዓት ንቁ ነው። "
-                f"የመጨረሻዎቹን ቪዲዮዎች እና ፊልሞች ለማየት ቻናሉን መቀላቀል አለብዎት።"
-            )
-            bot.send_message(uid, preview_text, protect_content=is_restriction_on())
-            
-        except Exception as e:
-            bot.answer_callback_query(call.id, "❌ መረጃውን ማግኘት አልተቻለም።", show_alert=True)
-
-            
+            bot.answer_callback_query(call.id, f"❌ መግለጫውን ማግኘት አልተቻለም።\nምክንያት፦ {e}", show_alert=True)
 # =========================================================================
 # 8. PAYMENT & ADMIN PROCESSES
 # =========================================================================
@@ -495,6 +474,29 @@ def finalize_submission(message, photo_msg, full_name):
     
     bot.send_message(uid, "<b>✅ በስኬት ተልኳል!</b>\nአድሚኑ ደረሰኙን አይቶ በቅርቡ ያረጋግጥልዎታል።", reply_markup=main_menu_keyboard())
 
+def process_add_channel(message):
+    if not message.forward_from_chat:
+        bot.send_message(ADMIN_ID, "❌ ስህተት! እባክዎ መልዕክቱን ከቻናሉ ፎርዋርድ ያድርጉት።")
+        return
+    
+    ch_id = message.forward_from_chat.id
+    ch_name = message.forward_from_chat.title
+    
+    try:
+        # ቦቱ መረጃ ማንበብ እንደሚችል ያረጋግጣል
+        bot.get_chat(ch_id)
+        
+        # ዳታቤዝ ላይ መረጃውን ማደስ
+        channels_col.update_one(
+            {"id": ch_id}, 
+            {"$set": {"name": ch_name, "id": ch_id}}, 
+            upsert=True
+        )
+        bot.send_message(ADMIN_ID, f"✅ ቻናል <b>{ch_name}</b> በስኬት ተጨምሯል!")
+        
+    except Exception as e:
+        bot.send_message(ADMIN_ID, f"❌ ስህተት፦ ቦቱ በቻናሉ ላይ አድሚን መሆኑን ያረጋግጡ።\nምክንያት፦ {e}")
+        
 def process_manual_remove(message):
     uid_text = message.text.strip()
     
