@@ -477,8 +477,16 @@ def finalize_submission(message, photo_msg, full_name):
     bot.send_message(uid, "<b>✅ በስኬት ተልኳል!</b>\nአድሚኑ ደረሰኙን አይቶ በቅርቡ ያረጋግጥልዎታል።", reply_markup=main_menu_keyboard())
 
 def process_add_channel(message):
+    # 'ሁሉንም ጨርሻለሁ' የሚለውን ቁልፍ ከነካ
+    if message.text == "✅ ሁሉንም ጨርሻለሁ":
+        bot.send_message(ADMIN_ID, "<b>ስራው ተጠናቋል!</b> ቻናሎቹ ገብተዋል።", reply_markup=main_menu_keyboard())
+        bot.send_message(ADMIN_ID, "<b>🛠 Master Admin Panel:</b>", reply_markup=admin_panel_keyboard())
+        return
+
+    # መልዕክቱ ፎርዋርድ የተደረገ ካልሆነ
     if not message.forward_from_chat:
-        bot.send_message(ADMIN_ID, "❌ ስህተት! እባክዎ መልዕክቱን ከቻናሉ ፎርዋርድ ያድርጉት።")
+        bot.send_message(ADMIN_ID, "❌ ስህተት! እባክዎ መልዕክቱን ከቻናሉ ፎርዋርድ ያድርጉት።\n\nካበቁ <b>'✅ ሁሉንም ጨርሻለሁ'</b> የሚለውን ይጫኑ።")
+        bot.register_next_step_handler(message, process_add_channel)
         return
     
     ch_id = message.forward_from_chat.id
@@ -488,16 +496,26 @@ def process_add_channel(message):
         # ቦቱ መረጃ ማንበብ እንደሚችል ያረጋግጣል
         bot.get_chat(ch_id)
         
-        # ዳታቤዝ ላይ መረጃውን ማደስ
+        # ዳታቤዝ ላይ መረጃውን ማደስ/መጨመር
         channels_col.update_one(
             {"id": ch_id}, 
             {"$set": {"name": ch_name, "id": ch_id}}, 
             upsert=True
         )
-        bot.send_message(ADMIN_ID, f"✅ ቻናል <b>{ch_name}</b> በስኬት ተጨምሯል!")
+        
+        # ለቀጣዩ ዝግጁ እንዲሆን
+        markup = ReplyKeyboardMarkup(resize_keyboard=True)
+        markup.add(KeyboardButton("✅ ሁሉንም ጨርሻለሁ"))
+        
+        bot.send_message(ADMIN_ID, f"✅ ቻናል <b>{ch_name}</b> ገብቷል!\n\nአሁንም ሌላ ቻናል <b>forward</b> ማድረግ ይችላሉ። ሲጨርሱ ቁልፉን ይጫኑ።", reply_markup=markup)
+        
+        # እንደገና ራሱን ይጠራል (ይህ ነው ብዙ ቻናል በአንድ ጊዜ እንዲያስገባ የሚያደርገው)
+        bot.register_next_step_handler(message, process_add_channel)
         
     except Exception as e:
         bot.send_message(ADMIN_ID, f"❌ ስህተት፦ ቦቱ በቻናሉ ላይ አድሚን መሆኑን ያረጋግጡ።\nምክንያት፦ {e}")
+        bot.register_next_step_handler(message, process_add_channel)
+
         
 def process_manual_remove(message):
     uid_text = message.text.strip()
