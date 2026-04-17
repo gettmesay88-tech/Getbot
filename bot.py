@@ -311,9 +311,11 @@ def handle_all_callbacks(call):
         bot.answer_callback_query(call.id, "ተጠቃሚው ተወግዷል።")
         bot.edit_message_text(f"✅ ተጠቃሚ {target_id} ከአገልግሎት ተወግዷል።", ADMIN_ID, mid)
 
-    # Admin: Add Channel
+        # Admin: Add Channel
     elif call.data == "adm_add_ch":
-        msg = bot.send_message(ADMIN_ID, "እባክዎ መጨመር ከሚፈልጉት ቻናል አንድ መልዕክት ፎርዋርድ ያድርጉልኝ፦")
+        markup = ReplyKeyboardMarkup(resize_keyboard=True)
+        markup.add(KeyboardButton("✅ ሁሉንም ጨርሻለሁ"))
+        msg = bot.send_message(ADMIN_ID, "እባክዎ መጨመር ከሚፈልጉት ቻናል አንድ መልዕክት <b>ፎርዋርድ</b> ያድርጉልኝ፦\n\nሲጨርሱ ቁልፉን ይጫኑ።", reply_markup=markup)
         bot.register_next_step_handler(msg, process_add_channel)
 
     # Admin: Remove Channel List
