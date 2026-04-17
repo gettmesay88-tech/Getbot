@@ -408,8 +408,7 @@ def handle_all_callbacks(call):
         markup.add(InlineKeyboardButton("✍️ የራስህን መልዕክት ጻፍ", callback_data=f"rj_custom_{target_id}"))
         bot.edit_message_text("ውድቅ የተደረገበትን ምክንያት ይምረጡ፦", ADMIN_ID, mid, reply_markup=markup)
 
-    # User: View Description with Real-time Update
-    # User: View Description
+        # 1. የቻናሉን መግለጫ (Description) ለማየት (ይህ የነበረው ነው)
     elif call.data.startswith("view_ch_"):
         try:
             ch_id = int(call.data.split("_")[2])
@@ -417,7 +416,31 @@ def handle_all_callbacks(call):
             description = info.description if info.description else "ለዚህ ቻናል ምንም መግለጫ አልተጻፈም።"
             bot.answer_callback_query(call.id, f"📝 የቻናሉ መግለጫ፦\n\n{description}", show_alert=True)
         except Exception as e:
-            bot.answer_callback_query(call.id, f"❌ መግለጫውን ማግኘት አልተቻለም።\nምክንያት፦ {e}", show_alert=True)
+            bot.answer_callback_query(call.id, f"❌ መግለጫውን ማግኘት አልተቻለም።", show_alert=True)
+
+    # 2. የመጨረሻውን ፖስት ቅድመ እይታ (Preview) ለማየት (ይህ አዲሱ ነው)
+    elif call.data.startswith("last_post_"):
+        try:
+            ch_id = int(call.data.split("_")[2])
+            bot.answer_callback_query(call.id, "የመጨረሻውን ፖስት በማምጣት ላይ...")
+            
+            chat_info = bot.get_chat(ch_id)
+            
+            # ቦቱ በቻናሉ ውስጥ አድሚን ስለሆነ የመጨረሻውን ፖስት ገልብጦ (Copy) ይልካል
+            # ማሳሰቢያ፡ ቴሌግራም ቦት API የመጨረሻውን Message ID በቀጥታ አይሰጥም
+            # ነገር ግን ቻናሉ ላይ ያለውን የቅርብ ጊዜ መረጃ እንዲህ ማሳየት ትችላለህ፡
+            
+            preview_text = (
+                f"<b>🎬 የ {chat_info.title} የቅርብ ጊዜ መረጃ</b>\n\n"
+                f"ይህ ቻናል በአሁኑ ሰዓት ንቁ ነው። "
+                f"የመጨረሻዎቹን ቪዲዮዎች እና ፊልሞች ለማየት ቻናሉን መቀላቀል አለብዎት።"
+            )
+            bot.send_message(uid, preview_text, protect_content=is_restriction_on())
+            
+        except Exception as e:
+            bot.answer_callback_query(call.id, "❌ መረጃውን ማግኘት አልተቻለም።", show_alert=True)
+
+            
 # =========================================================================
 # 8. PAYMENT & ADMIN PROCESSES
 # =========================================================================
