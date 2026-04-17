@@ -424,6 +424,26 @@ def handle_all_callbacks(call):
             bot.answer_callback_query(call.id, f"📝 የቻናሉ መግለጫ፦\n\n{description}", show_alert=True)
         except Exception as e:
             bot.answer_callback_query(call.id, f"❌ መግለጫውን ማግኘት አልተቻለም።\nምክንያት፦ {e}", show_alert=True)
+
+    # ቻናል በብዛት መጨመሪያ (Bulk Add)
+    elif call.data == "adm_add_bulk":
+        msg = bot.send_message(ADMIN_ID, "እባክዎ መጨመር የሚፈልጉትን ቻናሎች አንድ በአንድ ፎርዋርድ ያድርጉ።\n\nሲጨርሱ <b>'✅ ሁሉንም ጨርሻለሁ'</b> የሚለውን ቁልፍ ይጫኑ።", 
+                               reply_markup=ReplyKeyboardMarkup(resize_keyboard=True).add("✅ ሁሉንም ጨርሻለሁ"))
+        bot.register_next_step_handler(msg, process_bulk_add_channels)
+
+    # ቻናል ለመቀየር ዝርዝር ማሳያ
+    elif call.data == "adm_replace_ch":
+        markup = InlineKeyboardMarkup()
+        for ch in list(channels_col.find()):
+            markup.add(InlineKeyboardButton(f"🔄 {ch['name']}", callback_data=f"adm_rep_select_{ch['id']}"))
+        bot.edit_message_text("መተካት (Replace) የሚፈልጉትን ቻናል ይምረጡ፦", ADMIN_ID, mid, reply_markup=markup)
+
+    # የሚተካው ቻናል ሲመረጥ
+    elif call.data.startswith("adm_rep_select_"):
+        old_ch_id = int(call.data.split("_")[3])
+        msg = bot.send_message(ADMIN_ID, "አሁን ደግሞ በሱ ቦታ የሚተካውን አዲሱን ቻናል አንድ መልዕክት ፎርዋርድ ያድርጉልኝ፦")
+        bot.register_next_step_handler(msg, lambda m: process_replace_channel(m, old_ch_id))
+
 # =========================================================================
 # 8. PAYMENT & ADMIN PROCESSES
 # =========================================================================
