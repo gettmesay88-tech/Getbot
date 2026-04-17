@@ -456,6 +456,48 @@ def get_payment_screenshot(message):
         bot.send_message(message.chat.id, "⚠️ እባክዎ የደረሰኙን ፎቶ (Screenshot) ብቻ ይላኩ!")
         bot.register_next_step_handler(message, get_payment_screenshot)
         return
+
+    # ቻናል በብዛት መጨመሪያ Logic
+def process_bulk_add_channels(message):
+    if message.text == "✅ ሁሉንም ጨርሻለሁ":
+        bot.send_message(ADMIN_ID, "✅ የቻናል ምዝገባው ተጠናቅቋል!", reply_markup=main_menu_keyboard())
+        bot.send_message(ADMIN_ID, "🛠 Admin Panel:", reply_markup=admin_panel_keyboard())
+        return
+
+    if not message.forward_from_chat:
+        msg = bot.send_message(ADMIN_ID, "⚠️ እባክዎ መልዕክት ከቻናሉ ፎርዋርድ ያድርጉ ወይም ሲጨርሱ '✅ ሁሉንም ጨርሻለሁ' የሚለውን ይጫኑ።")
+        bot.register_next_step_handler(msg, process_bulk_add_channels)
+        return
+
+    ch_id = message.forward_from_chat.id
+    ch_name = message.forward_from_chat.title
+    
+    try:
+        bot.get_chat(ch_id)
+        channels_col.update_one({"id": ch_id}, {"$set": {"name": ch_name, "id": ch_id}}, upsert=True)
+        msg = bot.send_message(ADMIN_ID, f"📥 ቻናል <b>{ch_name}</b> ገብቷል።\nሌላ ካለ ይቀጥሉ...")
+        bot.register_next_step_handler(msg, process_bulk_add_channels)
+    except Exception as e:
+        msg = bot.send_message(ADMIN_ID, f"❌ ስህተት፦ ቦቱ በቻናሉ ላይ አድሚን መሆኑን ያረጋግጡ።")
+        bot.register_next_step_handler(msg, process_bulk_add_channels)
+
+# ቻናል የመቀየሪያ (Replace) Logic
+def process_replace_channel(message, old_id):
+    if not message.forward_from_chat:
+        bot.send_message(ADMIN_ID, "❌ ስህተት! እባክዎ ከአዲሱ ቻናል መልዕክት ፎርዋርድ ያድርጉ።")
+        return
+
+    new_id = message.forward_from_chat.id
+    new_name = message.forward_from_chat.title
+
+    try:
+        bot.get_chat(new_id)
+        channels_col.delete_one({"id": old_id})
+        channels_col.update_one({"id": new_id}, {"$set": {"name": new_name, "id": new_id}}, upsert=True)
+        bot.send_message(ADMIN_ID, f"✅ ቻናል ተቀይሯል!\n✨ አዲስ ቻናል: <b>{new_name}</b>", reply_markup=admin_panel_keyboard())
+    except Exception as e:
+        bot.send_message(ADMIN_ID, f"❌ ስህተት፦ {e}")
+
     
     bot.send_message(message.chat.id, "<b>✅ ደረሰኙን ተቀብያለሁ!</b>\nአሁን ደግሞ የከፈሉበትን ሙሉ ስም በ አማርኛ ወይም በእንግሊዝኛ ይላኩ፦")
     bot.register_next_step_handler(message, lambda m: collect_name_and_submit(m, message))
