@@ -162,15 +162,17 @@ def admin_panel_keyboard():
         InlineKeyboardButton("📢 ብሮድካስት", callback_data="adm_bc")
     )
     markup.add(
-        InlineKeyboardButton("➕ ቻናል ጨምር", callback_data="adm_add_ch"),
-        InlineKeyboardButton("➖ ቻናል ቀንስ", callback_data="adm_rem_ch")
+        InlineKeyboardButton("➕ ቻናል በብዛት", callback_data="adm_add_bulk"),
+        InlineKeyboardButton("🔄 ቻናል ቀይር (Replace)", callback_data="adm_replace_ch")
     )
-    # የቻናል ስሞችን ማደሻ አዲሱ በተን
-    markup.add(InlineKeyboardButton("🔄 የቻናል ስሞችን አድስ (Sync)", callback_data="adm_sync_names"))
+    markup.add(
+        InlineKeyboardButton("➖ ቻናል ቀንስ", callback_data="adm_rem_ch"),
+        InlineKeyboardButton("🔄 ስም Sync", callback_data="adm_sync_names")
+    )
     
     res_text = "🚫 Restriction: ON" if is_restriction_on() else "🔓 Restriction: OFF"
     markup.add(InlineKeyboardButton(res_text, callback_data="adm_toggle_res"))
-    markup.add(InlineKeyboardButton("👤 ተጠቃሚ ማባረር (Manual)", callback_data="adm_manual_remove"))
+    markup.add(InlineKeyboardButton("👤 ተጠቃሚ ማባረር", callback_data="adm_manual_remove"))
 
     return markup
 
