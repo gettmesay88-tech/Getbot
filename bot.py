@@ -148,13 +148,6 @@ def auto_kick_worker():
 # =========================================================================
 # 5. KEYBOARDS
 # =========================================================================
-def main_menu_keyboard():
-    markup = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
-    markup.add(KeyboardButton("💎 VIP ለመመዝገብ"), KeyboardButton("👤 የእኔ አገልግሎት"))
-    markup.add(KeyboardButton("🎬 Addis Film Poster"), KeyboardButton("📜 VIP Channel ዝርዝር"))
-    markup.add(KeyboardButton("🆘 እገዛ (Help)"))
-    return markup
-
 def admin_panel_keyboard():
     markup = InlineKeyboardMarkup(row_width=2)
     markup.add(
@@ -163,10 +156,9 @@ def admin_panel_keyboard():
     )
     markup.add(
         InlineKeyboardButton("➕ ቻናል በብዛት", callback_data="adm_add_bulk"),
-        InlineKeyboardButton("🔄 ቻናል ቀይር (Replace)", callback_data="adm_replace_ch")
+        InlineKeyboardButton("➖ ቻናል ቀንስ", callback_data="adm_rem_ch")
     )
     markup.add(
-        InlineKeyboardButton("➖ ቻናል ቀንስ", callback_data="adm_rem_ch"),
         InlineKeyboardButton("🔄 ስም Sync", callback_data="adm_sync_names")
     )
     
@@ -233,11 +225,14 @@ def handle_channel_list(message):
         
     markup = InlineKeyboardMarkup()
     for ch in channels:
-        # ዳታቤዝ ላይ ያለውን (የታደሰውን) ስም ይጠቀማል
-        markup.add(InlineKeyboardButton(f"🔹 {ch.get('name', 'Channel')}", callback_data=f"view_ch_{ch['id']}"))
+        # የቻናል ስም እና የመጨረሻ ፖስት በተን ጎን ለጎን
+        name_btn = InlineKeyboardButton(f"🔹 {ch.get('name', 'Channel')}", callback_data=f"view_ch_{ch['id']}")
+        last_post_btn = InlineKeyboardButton("🖼 የመጨረሻ Post", callback_data=f"last_post_{ch['id']}")
+        markup.row(name_btn, last_post_btn)
         
-    bot.send_message(message.chat.id, "<b>📜 የVIP ቻናሎች ዝርዝር፦</b>\nስለ ቻናሉ ለማወቅ ስሙን ይጫኑ 👇", 
+    bot.send_message(message.chat.id, "<b>📜 የVIP ቻናሎች ዝርዝር፦</b>\n\nመግለጫ ለማየት ስሙን፣ የመጨረሻውን ፖስት ለማየት ደግሞ በተኑን ይጫኑ 👇", 
                      reply_markup=markup)
+
 
 # =========================================================================
 # 7. CALLBACK QUERY HANDLER
@@ -424,26 +419,6 @@ def handle_all_callbacks(call):
             bot.answer_callback_query(call.id, f"📝 የቻናሉ መግለጫ፦\n\n{description}", show_alert=True)
         except Exception as e:
             bot.answer_callback_query(call.id, f"❌ መግለጫውን ማግኘት አልተቻለም።\nምክንያት፦ {e}", show_alert=True)
-
-    # ቻናል በብዛት መጨመሪያ (Bulk Add)
-    elif call.data == "adm_add_bulk":
-        msg = bot.send_message(ADMIN_ID, "እባክዎ መጨመር የሚፈልጉትን ቻናሎች አንድ በአንድ ፎርዋርድ ያድርጉ።\n\nሲጨርሱ <b>'✅ ሁሉንም ጨርሻለሁ'</b> የሚለውን ቁልፍ ይጫኑ።", 
-                               reply_markup=ReplyKeyboardMarkup(resize_keyboard=True).add("✅ ሁሉንም ጨርሻለሁ"))
-        bot.register_next_step_handler(msg, process_bulk_add_channels)
-
-    # ቻናል ለመቀየር ዝርዝር ማሳያ
-    elif call.data == "adm_replace_ch":
-        markup = InlineKeyboardMarkup()
-        for ch in list(channels_col.find()):
-            markup.add(InlineKeyboardButton(f"🔄 {ch['name']}", callback_data=f"adm_rep_select_{ch['id']}"))
-        bot.edit_message_text("መተካት (Replace) የሚፈልጉትን ቻናል ይምረጡ፦", ADMIN_ID, mid, reply_markup=markup)
-
-    # የሚተካው ቻናል ሲመረጥ
-    elif call.data.startswith("adm_rep_select_"):
-        old_ch_id = int(call.data.split("_")[3])
-        msg = bot.send_message(ADMIN_ID, "አሁን ደግሞ በሱ ቦታ የሚተካውን አዲሱን ቻናል አንድ መልዕክት ፎርዋርድ ያድርጉልኝ፦")
-        bot.register_next_step_handler(msg, lambda m: process_replace_channel(m, old_ch_id))
-
 # =========================================================================
 # 8. PAYMENT & ADMIN PROCESSES
 # =========================================================================
@@ -456,48 +431,6 @@ def get_payment_screenshot(message):
         bot.send_message(message.chat.id, "⚠️ እባክዎ የደረሰኙን ፎቶ (Screenshot) ብቻ ይላኩ!")
         bot.register_next_step_handler(message, get_payment_screenshot)
         return
-
-    # ቻናል በብዛት መጨመሪያ Logic
-def process_bulk_add_channels(message):
-    if message.text == "✅ ሁሉንም ጨርሻለሁ":
-        bot.send_message(ADMIN_ID, "✅ የቻናል ምዝገባው ተጠናቅቋል!", reply_markup=main_menu_keyboard())
-        bot.send_message(ADMIN_ID, "🛠 Admin Panel:", reply_markup=admin_panel_keyboard())
-        return
-
-    if not message.forward_from_chat:
-        msg = bot.send_message(ADMIN_ID, "⚠️ እባክዎ መልዕክት ከቻናሉ ፎርዋርድ ያድርጉ ወይም ሲጨርሱ '✅ ሁሉንም ጨርሻለሁ' የሚለውን ይጫኑ።")
-        bot.register_next_step_handler(msg, process_bulk_add_channels)
-        return
-
-    ch_id = message.forward_from_chat.id
-    ch_name = message.forward_from_chat.title
-    
-    try:
-        bot.get_chat(ch_id)
-        channels_col.update_one({"id": ch_id}, {"$set": {"name": ch_name, "id": ch_id}}, upsert=True)
-        msg = bot.send_message(ADMIN_ID, f"📥 ቻናል <b>{ch_name}</b> ገብቷል።\nሌላ ካለ ይቀጥሉ...")
-        bot.register_next_step_handler(msg, process_bulk_add_channels)
-    except Exception as e:
-        msg = bot.send_message(ADMIN_ID, f"❌ ስህተት፦ ቦቱ በቻናሉ ላይ አድሚን መሆኑን ያረጋግጡ።")
-        bot.register_next_step_handler(msg, process_bulk_add_channels)
-
-# ቻናል የመቀየሪያ (Replace) Logic
-def process_replace_channel(message, old_id):
-    if not message.forward_from_chat:
-        bot.send_message(ADMIN_ID, "❌ ስህተት! እባክዎ ከአዲሱ ቻናል መልዕክት ፎርዋርድ ያድርጉ።")
-        return
-
-    new_id = message.forward_from_chat.id
-    new_name = message.forward_from_chat.title
-
-    try:
-        bot.get_chat(new_id)
-        channels_col.delete_one({"id": old_id})
-        channels_col.update_one({"id": new_id}, {"$set": {"name": new_name, "id": new_id}}, upsert=True)
-        bot.send_message(ADMIN_ID, f"✅ ቻናል ተቀይሯል!\n✨ አዲስ ቻናል: <b>{new_name}</b>", reply_markup=admin_panel_keyboard())
-    except Exception as e:
-        bot.send_message(ADMIN_ID, f"❌ ስህተት፦ {e}")
-
     
     bot.send_message(message.chat.id, "<b>✅ ደረሰኙን ተቀብያለሁ!</b>\nአሁን ደግሞ የከፈሉበትን ሙሉ ስም በ አማርኛ ወይም በእንግሊዝኛ ይላኩ፦")
     bot.register_next_step_handler(message, lambda m: collect_name_and_submit(m, message))
