@@ -322,9 +322,27 @@ def handle_all_callbacks(call):
     # Admin: Remove Channel List
     elif call.data == "adm_rem_ch":
         markup = InlineKeyboardMarkup()
-        for ch in list(channels_col.find()):
-            markup.add(InlineKeyboardButton(f"❌ {ch['name']}", callback_data=f"adm_confirm_del_{ch['id']}"))
+        channels = list(channels_col.find())
+        for index, ch in enumerate(channels, start=1):
+            markup.add(InlineKeyboardButton(f"❌ {ch['name']} {index}", callback_data=f"adm_confirm_del_{ch['id']}"))
+        
+        # አዲሱ "ሁሉንም አስወግድ" በተን እዚህ ጋር ነው
+        markup.add(InlineKeyboardButton("🔥 ሁሉንም ቻናል አስወግድ", callback_data="adm_del_all_confirm"))
         bot.edit_message_text("መሰረዝ የሚፈልጉትን ቻናል ይምረጡ፦", ADMIN_ID, mid, reply_markup=markup)
+
+    # ሁሉንም ለማጥፋት ማረጋገጫ መጠየቂያ
+    elif call.data == "adm_del_all_confirm":
+        markup = InlineKeyboardMarkup().add(
+            InlineKeyboardButton("✅ አዎ! ሁሉንም ሰርዝ", callback_data="adm_do_del_all_final"),
+            InlineKeyboardButton("❌ አይ ተመለስ", callback_data="adm_rem_ch")
+        )
+        bot.edit_message_text("⚠️ <b>እርግጠኛ ነዎት?</b> ሁሉንም ቻናሎች ከዳታቤዝ ላይ ያጠፋቸዋል!", ADMIN_ID, mid, reply_markup=markup)
+
+    # ሁሉንም የማጥፊያ እርምጃ (Logic)
+    elif call.data == "adm_do_del_all_final":
+        channels_col.delete_many({}) # ዳታቤዙን ባዶ ያደርገዋል
+        bot.answer_callback_query(call.id, "ሁሉም ቻናሎች ተሰርዘዋል!")
+        bot.edit_message_text("✅ ሁሉም የVIP ቻናሎች በስኬት ተሰርዘዋል።", ADMIN_ID, mid)
 
     # Admin: Confirm Channel Delete
     elif call.data.startswith("adm_confirm_del_"):
