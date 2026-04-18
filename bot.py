@@ -481,30 +481,33 @@ def handle_all_callbacks(call):
             ch_info = bot.get_chat(ch_id)
             bot.send_message(uid, f"<b>🎬 ከ {ch_info.title} የተመረጡ አዳዲስ ፊልሞች፦</b>")
 
-            # ቴሌግራም ላይ መልዕክቶች በ ID ቅደም ተከተል ስለሚቀመጡ 
-            # ከቅርብ ጊዜው ID ጀምሮ ወደ ኋላ በመሄድ ፎቶዎችን እንፈልጋለን
-            # ማሳሰቢያ፡ ይህ እንዲሰራ ቦቱ ቻናሉ ላይ አድሚን መሆን አለበት
-            
-            # የመጨረሻውን መልዕክት ID ለማግኘት ቦቱ ቻናሉ ላይ መልዕክት ልኮ ወዲያው ያጠፋዋል
+            # የመጨረሻውን መልዕክት ID ለማግኘት
             temp_msg = bot.send_message(ch_id, ".")
             last_id = temp_msg.message_id
             bot.delete_message(ch_id, last_id)
 
             found_count = 0
-            # የመጨረሻዎቹን 20 መልዕክቶች በመፈተሽ 5 ፎቶዎችን ብቻ ፎርዋርድ ለማድረግ
-            for msg_id in range(last_id - 1, last_id - 21, -1):
+            # የመጨረሻዎቹን 30 መልዕክቶች በመፈተሽ 5 ፎቶዎችን ብቻ መርጦ ይልካል
+            for msg_id in range(last_id - 1, last_id - 31, -1):
                 if found_count >= 5:
                     break
                 try:
-                    # መልዕክቱን ፎርዋርድ ለማድረግ መሞከር
-                    bot.forward_message(uid, ch_id, msg_id)
-                    found_count += 1
+                    # መልዕክቱን መጀመሪያ በ 'get' መፈተሽ (ፎቶ መሆኑን ለማረጋገጥ)
+                    # ማሳሰቢያ፡ ይህ እንዲሰራ ቦቱ ቻናሉ ላይ አድሚን መሆን አለበት
+                    msg = bot.forward_message(ADMIN_ID, ch_id, msg_id) # ለጊዜው ለአድሚን ፎርዋርድ አድርጎ ይፈትሻል
+                    
+                    # መልዕክቱ ፎቶ መሆኑን ማረጋገጫ (Document ወይም ቪዲዮ ከሆነ ያጠፋዋል)
+                    if msg.content_type == 'photo':
+                        bot.forward_message(uid, ch_id, msg_id)
+                        found_count += 1
+                    
+                    # የአድሚኑን የሙከራ መልዕክት ማጥፋት
+                    bot.delete_message(ADMIN_ID, msg.message_id)
                 except Exception:
-                    # መልዕክቱ ፎቶ ካልሆነ ወይም ከተሰረዘ ይዘለላል
                     continue
             
             if found_count == 0:
-                bot.send_message(uid, "<b>❌ በዚህ ቻናል ላይ ምንም ፎቶ አልተገኘም።</b>")
+                bot.send_message(uid, "<b>❌ በዚህ ቻናል ላይ ምንም የፊልም ፖስተር (ፎቶ) አልተገኘም።</b>")
             else:
                 bot.send_message(uid, "<b>✅ ሁሉንም ፊልሞች ለማግኘት VIP አባል ይሁኑ!</b>")
 
