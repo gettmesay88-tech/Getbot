@@ -257,7 +257,7 @@ def handle_new_movies(message):
         clean_name = ch['name'].split('-')[0].strip()
         clean_name = ''.join([i for i in clean_name if not i.isdigit()]).strip()
         
-        buttons.append(InlineKeyboardButton(f"{clean_name}", callback_data=f"get_last_5_{ch['id']}"))
+        buttons.append(InlineKeyboardButton(f"🎬 {clean_name}", callback_data=f"get_last_5_{ch['id']}"))
     
     markup.add(*buttons)
     bot.send_message(message.chat.id, "<b>🎬 የፊልም ፖስተሮች፦</b>\n\nየፊልም ፎቶዎችን ለማየት የቻናሉን ስም ይጫኑ 👇", reply_markup=markup)
@@ -469,50 +469,40 @@ def handle_all_callbacks(call):
         except Exception as e:
             bot.answer_callback_query(call.id, f"❌ መግለጫውን ማግኘት አልተቻለም።\nምክንያት፦ {e}", show_alert=True)
 
-    # የፊልም ፖስተር ማምጫ (አልበም የማይበትን እና አዳዲሶቹን 5 መልዕክት የሚልክ)
-       # የፊልም ፖስተር ማምጫ (አልበም እንዳይበትን የተስተካከለ)
+            # የፊልም ፖስተር ማምጫ (ቅደም ተከተል የተስተካከለ)
     elif call.data.startswith("get_last_5_"):
         ch_id = int(call.data.split("_")[3])
         uid = call.from_user.id
         wait_msg = bot.send_message(uid, "<b>⏳ እባክዎ ይጠብቁ... ፊልሞችን እያመጣሁ ነው</b>")
         try:
-            # የመጨረሻውን መልዕክት ID ማግኘት
+            ch_info = bot.get_chat(ch_id)
+            bot.send_message(uid, f"<b>🎬 ከ {ch_info.title} የተመረጡ አዳዲስ የፊልም ፖስተሮች፦</b>")
+            
             temp_msg = bot.send_message(ch_id, ".")
             last_id = temp_msg.message_id
             bot.delete_message(ch_id, last_id)
             
-            sent_count = 0
-            seen_media_groups = set()
-            
-            # ወደ ኋላ በመሄድ 5 አዳዲስ መልዕክቶችን (አልበም ወይም ነጠላ) መፈለግ
-            for msg_id in range(last_id - 1, last_id - 100, -1):
-                if sent_count >= 5: break
-                
+            photo_ids = []
+            # ወደ ኋላ በመሄድ አዳዲሶቹን 5 ፎቶዎች መፈለግ
+            for msg_id in range(last_id - 1, last_id - 51, -1):
+                if len(photo_ids) >= 5: break
                 try:
-                    # መልዕክቱን መፈተሽ
-                    test_m = bot.forward_message(ADMIN_ID, ch_id, msg_id)
-                    m_group_id = test_m.media_group_id
-                    is_photo = test_m.content_type == 'photo'
-                    bot.delete_message(ADMIN_ID, test_m.message_id)
-
-                    if is_photo:
-                        if m_group_id:
-                            # አልበም ከሆነ አንድ ጊዜ ብቻ Forward ሲደረግ ቴሌግራም ሙሉውን ሰብስቦ ይልካል
-                            if m_group_id not in seen_media_groups:
-                                bot.forward_message(uid, ch_id, msg_id)
-                                seen_media_groups.add(m_group_id)
-                                sent_count += 1
-                        else:
-                            # ነጠላ ፎቶ ከሆነ
-                            bot.forward_message(uid, ch_id, msg_id)
-                            sent_count += 1
+                    test_msg = bot.forward_message(ADMIN_ID, ch_id, msg_id)
+                    if test_msg.content_type == 'photo':
+                        photo_ids.append(msg_id)
+                    bot.delete_message(ADMIN_ID, test_msg.message_id)
                 except: continue
-                
-            if sent_count > 0:
-                bot.send_message(uid, "<b>✅ ሁሉንም ፊልሞች ለማግኘት VIP አባል ይሁኑ!</b>")
+            
+            if not photo_ids:
+                bot.send_message(uid, "<b>❌ በዚህ ቻናል ላይ ምንም የፊልም ፖስተር (ፎቶ) አልተገኘም።</b>")
             else:
-                bot.send_message(uid, "<b>❌ በዚህ ቻናል ላይ ምንም የፊልም ፖስተር አልተገኘም።</b>")
-        except Exception:
+                # --- ቁልፍ ለውጥ እዚህ ጋር ነው ---
+                # የፎቶዎቹን ቅደም ተከተል ወደ መደበኛ እንመልሰዋለን (አዲሱ መጨረሻ ላይ እንዲሆን)
+                photo_ids.reverse() 
+                
+                bot.forward_messages(uid, ch_id, photo_ids)
+                bot.send_message(uid, "<b>✅ ሁሉንም ፊልሞች ለማግኘት VIP አባል ይሁኑ!</b>")
+        except Exception as e:
             bot.send_message(uid, "❌ ፊልሞቹን ማግኘት አልተቻለም።")
         bot.delete_message(uid, wait_msg.message_id)
 
