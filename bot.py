@@ -230,12 +230,12 @@ def handle_channel_list(message):
         return
         
     markup = InlineKeyboardMarkup()
-    response = "<b>📜 የVIP ቻናሎች ዝርዝር፦</b>\n\n"
+    # ቻናሎቹን በተን ላይ ብቻ እንጨምራለን
     for index, ch in enumerate(channels, start=1):
         markup.add(InlineKeyboardButton(f"🔹 {ch['name']} {index}", callback_data=f"view_ch_{ch['id']}"))
         
-    bot.send_message(message.chat.id, f"{response}\nስለ ቻናሉ ለማወቅ ስሙን ይጫኑ 👇", reply_markup=markup)
-
+    # ጽሁፉን አጥፍተን ርዕሱን እና በተኖቹን ብቻ እንልካለን
+    bot.send_message(message.chat.id, "<b>📜 የVIP ቻናሎች ዝርዝር፦</b>\nስለ ቻናሉ ለማወቅ ስሙን ይጫኑ 👇", reply_markup=markup)
 
 # =========================================================================
 # 7. CALLBACK QUERY HANDLER
