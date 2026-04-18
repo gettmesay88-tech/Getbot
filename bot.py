@@ -469,53 +469,41 @@ def handle_all_callbacks(call):
         except Exception as e:
             bot.answer_callback_query(call.id, f"❌ መግለጫውን ማግኘት አልተቻለም።\nምክንያት፦ {e}", show_alert=True)
 
-        elif call.data.startswith("get_last_5_"):
+            # የፊልም ፖስተር ማምጫ (ቅደም ተከተል የተስተካከለ)
+    elif call.data.startswith("get_last_5_"):
         ch_id = int(call.data.split("_")[3])
         uid = call.from_user.id
-        
-        # 1. በጽሁፍ ማሳሰቢያ መስጠት
         wait_msg = bot.send_message(uid, "<b>⏳ እባክዎ ይጠብቁ... ፊልሞችን እያመጣሁ ነው</b>")
-        
         try:
-            # የቻናሉን መረጃ ማግኘት
             ch_info = bot.get_chat(ch_id)
             bot.send_message(uid, f"<b>🎬 ከ {ch_info.title} የተመረጡ አዳዲስ የፊልም ፖስተሮች፦</b>")
-
-            # የመጨረሻውን መልዕክት ID ለማግኘት
+            
             temp_msg = bot.send_message(ch_id, ".")
             last_id = temp_msg.message_id
             bot.delete_message(ch_id, last_id)
-
+            
             photo_ids = []
-            # ወደ ኋላ 50 መልዕክቶችን በመፈተሽ ፎቶዎችን ብቻ መለየት
+            # ወደ ኋላ በመሄድ አዳዲሶቹን 5 ፎቶዎች መፈለግ
             for msg_id in range(last_id - 1, last_id - 51, -1):
-                if len(photo_ids) >= 5: # ቢበዛ 5 ፎቶዎችን ለመላክ
-                    break
-                
+                if len(photo_ids) >= 5: break
                 try:
-                    # መልዕክቱን ለአድሚኑ ፎርዋርድ በማድረግ መፈተሽ
                     test_msg = bot.forward_message(ADMIN_ID, ch_id, msg_id)
-                    is_photo = test_msg.content_type == 'photo'
-                    bot.delete_message(ADMIN_ID, test_msg.message_id)
-
-                    if is_photo:
+                    if test_msg.content_type == 'photo':
                         photo_ids.append(msg_id)
-                except Exception:
-                    continue
+                    bot.delete_message(ADMIN_ID, test_msg.message_id)
+                except: continue
             
             if not photo_ids:
                 bot.send_message(uid, "<b>❌ በዚህ ቻናል ላይ ምንም የፊልም ፖስተር (ፎቶ) አልተገኘም።</b>")
             else:
                 # --- ቁልፍ ለውጥ እዚህ ጋር ነው ---
-                # በዝርዝር የተሰበሰቡትን የፎቶ IDዎች በአንድ ላይ ፎርዋርድ ያደርጋል
+                # የፎቶዎቹን ቅደም ተከተል ወደ መደበኛ እንመልሰዋለን (አዲሱ መጨረሻ ላይ እንዲሆን)
+                photo_ids.reverse() 
+                
                 bot.forward_messages(uid, ch_id, photo_ids)
                 bot.send_message(uid, "<b>✅ ሁሉንም ፊልሞች ለማግኘት VIP አባል ይሁኑ!</b>")
-
         except Exception as e:
-            logger.error(f"Error fetching posters: {e}")
-            bot.send_message(uid, "❌ ፊልሞቹን ማግኘት አልተቻለም። ቦቱ በቻናሉ ላይ አድሚን መሆኑን ያረጋግጡ።")
-        
-        # የ "ይጠብቁ" መልዕክቱን ማጥፋት
+            bot.send_message(uid, "❌ ፊልሞቹን ማግኘት አልተቻለም።")
         bot.delete_message(uid, wait_msg.message_id)
 
 
