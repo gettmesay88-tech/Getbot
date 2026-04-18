@@ -469,7 +469,7 @@ def handle_all_callbacks(call):
         except Exception as e:
             bot.answer_callback_query(call.id, f"❌ መግለጫውን ማግኘት አልተቻለም።\nምክንያት፦ {e}", show_alert=True)
 
-    # የፊልም ፖስተር ማምጫ (አልበም ግምት ውስጥ ያስገባ)
+        # የፊልም ፖስተር ማምጫ (አልበምን እንደ 1 መልዕክት የሚቆጥር)
     elif call.data.startswith("get_last_5_"):
         ch_id = int(call.data.split("_")[3])
         uid = call.from_user.id
@@ -478,47 +478,47 @@ def handle_all_callbacks(call):
             ch_info = bot.get_chat(ch_id)
             bot.send_message(uid, f"<b>🎬 ከ {ch_info.title} የተመረጡ አዳዲስ የፊልም ፖስተሮች፦</b>")
             
+            # የመጨረሻውን መልዕክት ID ማግኘት
             temp_msg = bot.send_message(ch_id, ".")
             last_id = temp_msg.message_id
             bot.delete_message(ch_id, last_id)
             
-            selected_messages = []
+            sent_count = 0
             seen_media_groups = set()
             
-            # ወደ ኋላ በመሄድ 5 የተለያዩ ፖስተሮችን መፈለግ
-            for msg_id in range(last_id - 1, last_id - 100, -1):
-                if len(selected_messages) >= 5: break
+            # በትክክል 5 መልዕክት (አልበም ወይም ነጠላ ፎቶ) እስኪልክ ፍለጋ ይቀጥላል
+            for msg_id in range(last_id - 1, last_id - 150, -1):
+                if sent_count >= 5: break # 5 መልዕክት ሲሞላ ይቆማል
+                
                 try:
-                    # መልዕክቱን መፈተሽ
+                    # መልዕክቱን ለአድሚን በመላክ መፈተሽ
                     test_msg = bot.forward_message(ADMIN_ID, ch_id, msg_id)
-                    
-                    if test_msg.content_type == 'photo':
-                        # አልበም ከሆነ (media_group_id ካለው)
-                        if test_msg.media_group_id:
-                            if test_msg.media_group_id not in seen_media_groups:
-                                seen_media_groups.add(test_msg.media_group_id)
-                                selected_messages.append(msg_id)
-                        else:
-                            # ተራ አንድ ፎቶ ብቻ ከሆነ
-                            selected_messages.append(msg_id)
-                            
+                    is_photo = test_msg.content_type == 'photo'
+                    m_group_id = test_msg.media_group_id
                     bot.delete_message(ADMIN_ID, test_msg.message_id)
-                except: continue
+
+                    if is_photo:
+                        if m_group_id:
+                            # አልበም ከሆነ እና ከዚህ በፊት ካልተላከ
+                            if m_group_id not in seen_media_groups:
+                                bot.forward_message(uid, ch_id, msg_id)
+                                seen_media_groups.add(m_group_id)
+                                sent_count += 1 # ሙሉ አልበሙ እንደ 1 ተቆጠረ
+                        else:
+                            # ነጠላ ፎቶ ከሆነ
+                            bot.forward_message(uid, ch_id, msg_id)
+                            sent_count += 1 # ነጠላው ፎቶ እንደ 1 ተቆጠረ
+                except:
+                    continue
             
-            if not selected_messages:
+            if sent_count == 0:
                 bot.send_message(uid, "<b>❌ በዚህ ቻናል ላይ ምንም የፊልም ፖስተር አልተገኘም።</b>")
             else:
-                selected_messages.reverse() 
-                for m_id in selected_messages:
-                    try:
-                        bot.forward_message(uid, ch_id, m_id)
-                    except: continue
-                
                 bot.send_message(uid, "<b>✅ ሁሉንም ፊልሞች ለማግኘት VIP አባል ይሁኑ!</b>")
+                
         except Exception as e:
             bot.send_message(uid, "❌ ፊልሞቹን ማግኘት አልተቻለም።")
         bot.delete_message(uid, wait_msg.message_id)
-
 
 # =========================================================================
 # 8. PAYMENT & ADMIN PROCESSES
