@@ -469,7 +469,7 @@ def handle_all_callbacks(call):
         except Exception as e:
             bot.answer_callback_query(call.id, f"❌ መግለጫውን ማግኘት አልተቻለም።\nምክንያት፦ {e}", show_alert=True)
 
-    elif call.data.startswith("get_last_5_"):
+        elif call.data.startswith("get_last_5_"):
         ch_id = int(call.data.split("_")[3])
         uid = call.from_user.id
         
@@ -477,46 +477,47 @@ def handle_all_callbacks(call):
         wait_msg = bot.send_message(uid, "<b>⏳ እባክዎ ይጠብቁ... ፊልሞችን እያመጣሁ ነው</b>")
         
         try:
-            # የቻናሉን ስም ለማግኘት
+            # የቻናሉን መረጃ ማግኘት
             ch_info = bot.get_chat(ch_id)
-            bot.send_message(uid, f"<b>🎬 ከ {ch_info.title} የተመረጡ አዳዲስ ፊልሞች፦</b>")
+            bot.send_message(uid, f"<b>🎬 ከ {ch_info.title} የተመረጡ አዳዲስ የፊልም ፖስተሮች፦</b>")
 
             # የመጨረሻውን መልዕክት ID ለማግኘት
             temp_msg = bot.send_message(ch_id, ".")
             last_id = temp_msg.message_id
             bot.delete_message(ch_id, last_id)
 
-            found_count = 0
-            # የመጨረሻዎቹን 30 መልዕክቶች በመፈተሽ 5 ፎቶዎችን ብቻ መርጦ ይልካል
-            for msg_id in range(last_id - 1, last_id - 31, -1):
-                if found_count >= 5:
+            photo_ids = []
+            # ወደ ኋላ 50 መልዕክቶችን በመፈተሽ ፎቶዎችን ብቻ መለየት
+            for msg_id in range(last_id - 1, last_id - 51, -1):
+                if len(photo_ids) >= 5: # ቢበዛ 5 ፎቶዎችን ለመላክ
                     break
+                
                 try:
-                    # መልዕክቱን መጀመሪያ በ 'get' መፈተሽ (ፎቶ መሆኑን ለማረጋገጥ)
-                    # ማሳሰቢያ፡ ይህ እንዲሰራ ቦቱ ቻናሉ ላይ አድሚን መሆን አለበት
-                    msg = bot.forward_message(ADMIN_ID, ch_id, msg_id) # ለጊዜው ለአድሚን ፎርዋርድ አድርጎ ይፈትሻል
-                    
-                    # መልዕክቱ ፎቶ መሆኑን ማረጋገጫ (Document ወይም ቪዲዮ ከሆነ ያጠፋዋል)
-                    if msg.content_type == 'photo':
-                        bot.forward_message(uid, ch_id, msg_id)
-                        found_count += 1
-                    
-                    # የአድሚኑን የሙከራ መልዕክት ማጥፋት
-                    bot.delete_message(ADMIN_ID, msg.message_id)
+                    # መልዕክቱን ለአድሚኑ ፎርዋርድ በማድረግ መፈተሽ
+                    test_msg = bot.forward_message(ADMIN_ID, ch_id, msg_id)
+                    is_photo = test_msg.content_type == 'photo'
+                    bot.delete_message(ADMIN_ID, test_msg.message_id)
+
+                    if is_photo:
+                        photo_ids.append(msg_id)
                 except Exception:
                     continue
             
-            if found_count == 0:
+            if not photo_ids:
                 bot.send_message(uid, "<b>❌ በዚህ ቻናል ላይ ምንም የፊልም ፖስተር (ፎቶ) አልተገኘም።</b>")
             else:
+                # --- ቁልፍ ለውጥ እዚህ ጋር ነው ---
+                # በዝርዝር የተሰበሰቡትን የፎቶ IDዎች በአንድ ላይ ፎርዋርድ ያደርጋል
+                bot.forward_messages(uid, ch_id, photo_ids)
                 bot.send_message(uid, "<b>✅ ሁሉንም ፊልሞች ለማግኘት VIP አባል ይሁኑ!</b>")
 
         except Exception as e:
-            logger.error(f"Error: {e}")
+            logger.error(f"Error fetching posters: {e}")
             bot.send_message(uid, "❌ ፊልሞቹን ማግኘት አልተቻለም። ቦቱ በቻናሉ ላይ አድሚን መሆኑን ያረጋግጡ።")
         
         # የ "ይጠብቁ" መልዕክቱን ማጥፋት
         bot.delete_message(uid, wait_msg.message_id)
+
 
 # =========================================================================
 # 8. PAYMENT & ADMIN PROCESSES
