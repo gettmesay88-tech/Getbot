@@ -469,7 +469,7 @@ def handle_all_callbacks(call):
         except Exception as e:
             bot.answer_callback_query(call.id, f"❌ መግለጫውን ማግኘት አልተቻለም።\nምክንያት፦ {e}", show_alert=True)
 
-            # የፊልም ፖስተር ማምጫ (ቅደም ተከተል የተስተካከለ)
+    # የፊልም ፖስተር ማምጫ (አልበምን እንደ አንድ ፖስት የሚቆጥር)
     elif call.data.startswith("get_last_5_"):
         ch_id = int(call.data.split("_")[3])
         uid = call.from_user.id
@@ -483,24 +483,44 @@ def handle_all_callbacks(call):
             bot.delete_message(ch_id, last_id)
             
             photo_ids = []
-            # ወደ ኋላ በመሄድ አዳዲሶቹን 5 ፎቶዎች መፈለግ
-            for msg_id in range(last_id - 1, last_id - 51, -1):
-                if len(photo_ids) >= 5: break
+            seen_media_groups = set() # የታዩ አልበሞችን መመዝገቢያ
+            
+            # ወደ ኋላ 100 መልዕክቶችን እንፈትሻለን (አልበሞች ብዙ ቦታ ሊይዙ ስለሚችሉ)
+            for msg_id in range(last_id - 1, last_id - 101, -1):
+                if len(photo_ids) >= 5: break 
                 try:
+                    # መረጃውን ለማረጋገጥ ለአድሚኑ ፎርዋርድ እናድርገው
                     test_msg = bot.forward_message(ADMIN_ID, ch_id, msg_id)
+                    
                     if test_msg.content_type == 'photo':
-                        photo_ids.append(msg_id)
+                        m_group_id = test_msg.media_group_id
+                        
+                        # አልበም ካልሆነ (ለየብቻ የተለጠፈ ፎቶ ከሆነ)
+                        if m_group_id is None:
+                            photo_ids.append(msg_id)
+                        
+                        # አልበም ከሆነ እና እስካሁን ካላየነው
+                        elif m_group_id not in seen_media_groups:
+                            photo_ids.append(msg_id)
+                            seen_media_groups.add(m_group_id)
+                        
+                        # አልበም ሆኖ ቀደም ብለን ካየነው (ሌሎቹን የአልበሙን ፎቶዎች ዝለል)
+                        else:
+                            pass 
+                            
                     bot.delete_message(ADMIN_ID, test_msg.message_id)
                 except: continue
             
             if not photo_ids:
-                bot.send_message(uid, "<b>❌ በዚህ ቻናል ላይ ምንም የፊልም ፖስተር (ፎቶ) አልተገኘም።</b>")
+                bot.send_message(uid, "<b>❌ ምንም የፊልም ፖስተር አልተገኘም።</b>")
             else:
-                # --- ቁልፍ ለውጥ እዚህ ጋር ነው ---
-                # የፎቶዎቹን ቅደም ተከተል ወደ መደበኛ እንመልሰዋለን (አዲሱ መጨረሻ ላይ እንዲሆን)
-                photo_ids.reverse() 
+                photo_ids.reverse() # አዲሱ መጨረሻ እንዲሆን
+                for p_id in photo_ids:
+                    try:
+                        bot.forward_message(uid, ch_id, p_id)
+                        time.sleep(0.5) 
+                    except: continue
                 
-                bot.forward_messages(uid, ch_id, photo_ids)
                 bot.send_message(uid, "<b>✅ ሁሉንም ፊልሞች ለማግኘት VIP አባል ይሁኑ!</b>")
         except Exception as e:
             bot.send_message(uid, "❌ ፊልሞቹን ማግኘት አልተቻለም።")
