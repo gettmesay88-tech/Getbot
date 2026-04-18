@@ -83,7 +83,7 @@ def is_restriction_on():
     return data.get("restriction", True) if data else True
 
 def get_channel_status_markup(user_id):
-    """Generates a list of channels with join status icons"""
+    """Generates a list of channels with join status icons and numbers"""
     markup = InlineKeyboardMarkup()
     channels = list(channels_col.find())
     
@@ -91,20 +91,21 @@ def get_channel_status_markup(user_id):
         markup.add(InlineKeyboardButton("ምንም ቻናል አልተጨመረም", callback_data="none"))
         return markup
 
-    for ch in channels:
+    # enumerate በመጠቀም 1, 2, 3 እያለ ቁጥር ይሰጣል
+    for index, ch in enumerate(channels, start=1):
         try:
             member = bot.get_chat_member(ch["id"], user_id)
-            if member.status in ['member', 'administrator', 'creator']:
-                status_icon = "✅"
-            else:
-                status_icon = "☑️"
+            status_icon = "✅" if member.status in ['member', 'administrator', 'creator'] else "☑️"
             
-            # Create a unique invite link for the user
+            # የግብዣ ሊንክ መፍጠር
             invite = bot.create_chat_invite_link(ch["id"], member_limit=1).invite_link
-            markup.add(InlineKeyboardButton(f"{status_icon} {ch['name']}", url=invite))
+            
+            # ስሙን በቁጥር (ምሳሌ፦ ✅ Channel Name 1) እንዲያሳይ
+            markup.add(InlineKeyboardButton(f"{status_icon} {ch['name']} {index}", url=invite))
         except Exception:
             continue
             
+    # የፈለግከው "Refresh" በተን እዚህ ጋር አለ
     markup.add(InlineKeyboardButton("🔄 ሁሉም ቻናል መግባቶን ያረጋግጡ (Refresh)", callback_data="refresh_service"))
     return markup
 
