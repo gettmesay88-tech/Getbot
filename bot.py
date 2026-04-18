@@ -151,7 +151,7 @@ def auto_kick_worker():
 def main_menu_keyboard():
     markup = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
     markup.add(KeyboardButton("💎 VIP ለመመዝገብ"), KeyboardButton("👤 የእኔ አገልግሎት"))
-    markup.add(KeyboardButton("🎬 Addis Film Poster"), KeyboardButton("📜 VIP Channel ዝርዝር"))
+    markup.add(KeyboardButton("🎬 አዳዲስ ፊልሞች"), KeyboardButton("📜 VIP Channel ዝርዝር"))
     markup.add(KeyboardButton("🆘 እገዛ (Help)"))
     return markup
 
@@ -236,6 +236,30 @@ def handle_channel_list(message):
         
     # ጽሁፉን አጥፍተን ርዕሱን እና በተኖቹን ብቻ እንልካለን
     bot.send_message(message.chat.id, "<b>📜 የVIP ቻናሎች ዝርዝር፦</b>\nስለ ቻናሉ ለማወቅ ስሙን ይጫኑ 👇", reply_markup=markup)
+    
+import random # ይህን ከላይ ከኢምፖርቶች ጋር ጨምረው
+
+@bot.message_handler(func=lambda m: m.text == "🎬 አዳዲስ ፊልሞች")
+def handle_new_movies(message):
+    all_channels = list(channels_col.find())
+    if not all_channels:
+        bot.send_message(message.chat.id, "<b>❌ ምንም ቻናል አልተገኘም።</b>")
+        return
+
+    # 12 ቻናሎችን ብቻ በዘፈቀደ መምረጥ
+    selected_channels = random.sample(all_channels, min(len(all_channels), 12))
+    
+    markup = InlineKeyboardMarkup(row_width=2)
+    for ch in selected_channels:
+        # ስሙን ማጽዳት (Gett Vip እና ቁጥሮችን ማጥፋት)
+        clean_name = ch['name'].replace("- Gett Vip", "").strip()
+        clean_name = ''.join([i for i in clean_name if not i.isdigit()]).strip()
+        
+        # በተኑ ሲነካ ወደ ሦስተኛው ክፍል (callback) እንዲሄድ 'get_last_5_' የሚል መነሻ ሰጥተነዋል
+        markup.add(InlineKeyboardButton(f"🎬 {clean_name}", callback_data=f"get_last_5_{ch['id']}"))
+        
+    bot.send_message(message.chat.id, "<b>🎬 ከVIP ቻናሎቻችን የተመረጡ አዳዲስ ፊልሞች፦</b>\n\nየፊልም ፖስተሮችን ለማየት የቻናሉን ስም ይጫኑ 👇", reply_markup=markup)
+
 
 # =========================================================================
 # 7. CALLBACK QUERY HANDLER
@@ -442,6 +466,33 @@ def handle_all_callbacks(call):
             bot.answer_callback_query(call.id, f"📝 የቻናሉ መግለጫ፦\n\n{description}", show_alert=True)
         except Exception as e:
             bot.answer_callback_query(call.id, f"❌ መግለጫውን ማግኘት አልተቻለም።\nምክንያት፦ {e}", show_alert=True)
+
+    elif call.data.startswith("get_last_5_"):
+        ch_id = int(call.data.split("_")[3])
+        
+        # 1. Loading Alert ማሳየት (በተኑ ሲነካ ከላይ የሚመጣ "እባክዎ ይጠብቁ" የሚል ጽሁፍ)
+        bot.answer_callback_query(call.id, "⏳ እባክዎ ይጠብቁ... ፊልሞችን እያመጣሁ ነው", show_alert=False)
+        
+        # 2. መልዕክቶችን የማምጣት ሒደት
+        try:
+            # ቦቱ በቻናሉ ላይ መልዕክቶችን ለማግኘት አድሚን መሆን አለበት
+            # የመጨረሻዎቹን 5 ፖስቶች ፎርዋርድ ለማድረግ መሞከር
+            
+            bot.send_message(uid, "<b>🎬 የመጨረሻዎቹ 5 አዳዲስ ፊልሞች፦</b>")
+            
+            # ቴሌግራም ቦት API የመጨረሻውን Message ID በቀጥታ ስለማይሰጥ 
+            # ቻናሉ ላይ አዲስ ፖስት ሲደረግ ቦቱ እንዲመዘግብ ማድረግ የተሻለ ነው (ይህ ተጨማሪ ኮድ ይፈልጋል)
+            # ለአሁኑ ግን ተጠቃሚው ወደ ቻናሉ በቀጥታ እንዲሄድ ሊንክ መስጠት አስተማማኝ ነው፦
+            
+            ch_info = bot.get_chat(ch_id)
+            invite = bot.create_chat_invite_link(ch_id, member_limit=1).invite_link
+            
+            msg = f"ከ <b>{ch_info.title}</b> የተመረጡ ፊልሞችን ለማየት ከታች ያለውን ሊንክ ይጫኑ፦\n\n🔗 {invite}"
+            bot.send_message(uid, msg)
+            
+        except Exception as e:
+            bot.send_message(uid, "❌ መረጃውን ማግኘት አልተቻለም። ቦቱ በቻናሉ ላይ አድሚን መሆኑን ያረጋግጡ።")
+
 # =========================================================================
 # 8. PAYMENT & ADMIN PROCESSES
 # =========================================================================
