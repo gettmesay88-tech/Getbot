@@ -246,19 +246,21 @@ def handle_new_movies(message):
         bot.send_message(message.chat.id, "<b>❌ ምንም ቻናል አልተገኘም።</b>")
         return
 
-    # 12 ቻናሎችን ብቻ በዘፈቀደ መምረጥ
+    # 12 ቻናሎችን መምረጥ
     selected_channels = random.sample(all_channels, min(len(all_channels), 12))
     
-    markup = InlineKeyboardMarkup(row_width=2)
+    markup = InlineKeyboardMarkup(row_width=3)
+    buttons = []
+    
     for ch in selected_channels:
-        # ስሙን ማጽዳት (Gett Vip እና ቁጥሮችን ማጥፋት)
-        clean_name = ch['name'].replace("- Gett Vip", "").strip()
+        # ስሙን ማጽዳት (ከ '-' በፊት ያለውን ብቻ መውሰድ)
+        clean_name = ch['name'].split('-')[0].strip()
         clean_name = ''.join([i for i in clean_name if not i.isdigit()]).strip()
         
-        # በተኑ ሲነካ ወደ ሦስተኛው ክፍል (callback) እንዲሄድ 'get_last_5_' የሚል መነሻ ሰጥተነዋል
-        markup.add(InlineKeyboardButton(f"🎬 {clean_name}", callback_data=f"get_last_5_{ch['id']}"))
-        
-    bot.send_message(message.chat.id, "<b>🎬 ከVIP ቻናሎቻችን የተመረጡ አዳዲስ ፊልሞች፦</b>\n\nየፊልም ፖስተሮችን ለማየት የቻናሉን ስም ይጫኑ 👇", reply_markup=markup)
+        buttons.append(InlineKeyboardButton(f"🎬 {clean_name}", callback_data=f"get_last_5_{ch['id']}"))
+    
+    markup.add(*buttons)
+    bot.send_message(message.chat.id, "<b>🎬 የፊልም ፖስተሮች፦</b>\n\nየፊልም ፎቶዎችን ለማየት የቻናሉን ስም ይጫኑ 👇", reply_markup=markup)
 
 
 # =========================================================================
@@ -469,29 +471,49 @@ def handle_all_callbacks(call):
 
     elif call.data.startswith("get_last_5_"):
         ch_id = int(call.data.split("_")[3])
+        uid = call.from_user.id
         
-        # 1. Loading Alert ማሳየት (በተኑ ሲነካ ከላይ የሚመጣ "እባክዎ ይጠብቁ" የሚል ጽሁፍ)
-        bot.answer_callback_query(call.id, "⏳ እባክዎ ይጠብቁ... ፊልሞችን እያመጣሁ ነው", show_alert=False)
+        # 1. በጽሁፍ ማሳሰቢያ መስጠት
+        wait_msg = bot.send_message(uid, "<b>⏳ እባክዎ ይጠብቁ... ፊልሞችን እያመጣሁ ነው</b>")
         
-        # 2. መልዕክቶችን የማምጣት ሒደት
         try:
-            # ቦቱ በቻናሉ ላይ መልዕክቶችን ለማግኘት አድሚን መሆን አለበት
-            # የመጨረሻዎቹን 5 ፖስቶች ፎርዋርድ ለማድረግ መሞከር
-            
-            bot.send_message(uid, "<b>🎬 የመጨረሻዎቹ 5 አዳዲስ ፊልሞች፦</b>")
-            
-            # ቴሌግራም ቦት API የመጨረሻውን Message ID በቀጥታ ስለማይሰጥ 
-            # ቻናሉ ላይ አዲስ ፖስት ሲደረግ ቦቱ እንዲመዘግብ ማድረግ የተሻለ ነው (ይህ ተጨማሪ ኮድ ይፈልጋል)
-            # ለአሁኑ ግን ተጠቃሚው ወደ ቻናሉ በቀጥታ እንዲሄድ ሊንክ መስጠት አስተማማኝ ነው፦
-            
+            # የቻናሉን ስም ለማግኘት
             ch_info = bot.get_chat(ch_id)
-            invite = bot.create_chat_invite_link(ch_id, member_limit=1).invite_link
+            bot.send_message(uid, f"<b>🎬 ከ {ch_info.title} የተመረጡ አዳዲስ ፊልሞች፦</b>")
+
+            # ቴሌግራም ላይ መልዕክቶች በ ID ቅደም ተከተል ስለሚቀመጡ 
+            # ከቅርብ ጊዜው ID ጀምሮ ወደ ኋላ በመሄድ ፎቶዎችን እንፈልጋለን
+            # ማሳሰቢያ፡ ይህ እንዲሰራ ቦቱ ቻናሉ ላይ አድሚን መሆን አለበት
             
-            msg = f"ከ <b>{ch_info.title}</b> የተመረጡ ፊልሞችን ለማየት ከታች ያለውን ሊንክ ይጫኑ፦\n\n🔗 {invite}"
-            bot.send_message(uid, msg)
+            # የመጨረሻውን መልዕክት ID ለማግኘት ቦቱ ቻናሉ ላይ መልዕክት ልኮ ወዲያው ያጠፋዋል
+            temp_msg = bot.send_message(ch_id, ".")
+            last_id = temp_msg.message_id
+            bot.delete_message(ch_id, last_id)
+
+            found_count = 0
+            # የመጨረሻዎቹን 20 መልዕክቶች በመፈተሽ 5 ፎቶዎችን ብቻ ፎርዋርድ ለማድረግ
+            for msg_id in range(last_id - 1, last_id - 21, -1):
+                if found_count >= 5:
+                    break
+                try:
+                    # መልዕክቱን ፎርዋርድ ለማድረግ መሞከር
+                    bot.forward_message(uid, ch_id, msg_id)
+                    found_count += 1
+                except Exception:
+                    # መልዕክቱ ፎቶ ካልሆነ ወይም ከተሰረዘ ይዘለላል
+                    continue
             
+            if found_count == 0:
+                bot.send_message(uid, "<b>❌ በዚህ ቻናል ላይ ምንም ፎቶ አልተገኘም።</b>")
+            else:
+                bot.send_message(uid, "<b>✅ ሁሉንም ፊልሞች ለማግኘት VIP አባል ይሁኑ!</b>")
+
         except Exception as e:
-            bot.send_message(uid, "❌ መረጃውን ማግኘት አልተቻለም። ቦቱ በቻናሉ ላይ አድሚን መሆኑን ያረጋግጡ።")
+            logger.error(f"Error: {e}")
+            bot.send_message(uid, "❌ ፊልሞቹን ማግኘት አልተቻለም። ቦቱ በቻናሉ ላይ አድሚን መሆኑን ያረጋግጡ።")
+        
+        # የ "ይጠብቁ" መልዕክቱን ማጥፋት
+        bot.delete_message(uid, wait_msg.message_id)
 
 # =========================================================================
 # 8. PAYMENT & ADMIN PROCESSES
