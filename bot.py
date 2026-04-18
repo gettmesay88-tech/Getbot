@@ -257,7 +257,7 @@ def handle_new_movies(message):
         clean_name = ch['name'].split('-')[0].strip()
         clean_name = ''.join([i for i in clean_name if not i.isdigit()]).strip()
         
-        buttons.append(InlineKeyboardButton(f"🎬 {clean_name}", callback_data=f"get_last_5_{ch['id']}"))
+        buttons.append(InlineKeyboardButton(f"{clean_name}", callback_data=f"get_last_5_{ch['id']}"))
     
     markup.add(*buttons)
     bot.send_message(message.chat.id, "<b>🎬 የፊልም ፖስተሮች፦</b>\n\nየፊልም ፎቶዎችን ለማየት የቻናሉን ስም ይጫኑ 👇", reply_markup=markup)
