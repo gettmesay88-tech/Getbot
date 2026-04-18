@@ -226,16 +226,17 @@ def handle_registration(message):
 def handle_channel_list(message):
     channels = list(channels_col.find())
     if not channels:
-        bot.send_message(message.chat.id, "<b>❌ እስካሁን ምንም ቻናል አልተመዘገበም።</b>")
+        bot.send_message(message.chat.id, "<b>❌ ምንም ቻናል የለም።</b>")
         return
         
     markup = InlineKeyboardMarkup()
-    for ch in channels:
-        # ዳታቤዝ ላይ ያለውን (የታደሰውን) ስም ይጠቀማል
-        markup.add(InlineKeyboardButton(f"🔹 {ch.get('name', 'Channel')}", callback_data=f"view_ch_{ch['id']}"))
+    response = "<b>📜 የVIP ቻናሎች ዝርዝር፦</b>\n\n"
+    for index, ch in enumerate(channels, start=1):
+        markup.add(InlineKeyboardButton(f"🔹 {ch['name']} {index}", callback_data=f"view_ch_{ch['id']}"))
+        response += f"🔹 {ch['name']} {index}\n"
         
-    bot.send_message(message.chat.id, "<b>📜 የVIP ቻናሎች ዝርዝር፦</b>\nስለ ቻናሉ ለማወቅ ስሙን ይጫኑ 👇", 
-                     reply_markup=markup)
+    bot.send_message(message.chat.id, f"{response}\nስለ ቻናሉ ለማወቅ ስሙን ይጫኑ 👇", reply_markup=markup)
+
 
 # =========================================================================
 # 7. CALLBACK QUERY HANDLER
