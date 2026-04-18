@@ -233,7 +233,6 @@ def handle_channel_list(message):
     response = "<b>📜 የVIP ቻናሎች ዝርዝር፦</b>\n\n"
     for index, ch in enumerate(channels, start=1):
         markup.add(InlineKeyboardButton(f"🔹 {ch['name']} {index}", callback_data=f"view_ch_{ch['id']}"))
-        response += f"🔹 {ch['name']} {index}\n"
         
     bot.send_message(message.chat.id, f"{response}\nስለ ቻናሉ ለማወቅ ስሙን ይጫኑ 👇", reply_markup=markup)
 
