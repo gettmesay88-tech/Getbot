@@ -499,7 +499,7 @@ def handle_all_callbacks(call):
         bot.send_message(ADMIN_ID, f"✅ የ {updated_count} ቻናሎች ስም በስኬት ታድሷል!\nአሁን ለሁሉም ተጠቃሚዎች አዲሱ ስም ይታያል።")
 
          # User: Approve Payment (By Admin)
-  elif call.data.startswith("approve_"):
+elif call.data.startswith("approve_"):
     _, target_id, plan_id = call.data.split("_")
     target_id = int(target_id)
     
@@ -546,7 +546,7 @@ def handle_all_callbacks(call):
 
     # User: View Description with Real-time Update
     # User: View Description
-       elif call.data.startswith("view_ch_"):
+   elif call.data.startswith("view_ch_"):
         try:
             ch_id = int(call.data.split("_")[2])
             info = bot.get_chat(ch_id)
@@ -579,7 +579,7 @@ def handle_all_callbacks(call):
                     bot.delete_message(ADMIN_ID, test_msg.message_id)
                 except: continue
             
-                 if not photo_ids:
+            if not photo_ids:
                 bot.send_message(uid, "<b>❌ በዚህ ቻናል ላይ ምንም የፊልም ፖስተር አልተገኘም።</b>")
             else:
                 photo_ids.reverse() 
