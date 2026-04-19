@@ -720,12 +720,13 @@ def process_manual_remove(message):
 
     target_id = int(uid_text)
     
-    # ተጠቃሚውን ከዳታቤዝ ማስወጣት
+    # 1. ከዳታቤዝ አገልግሎቱን ማቋረጥ
     users_col.update_one({"user_id": target_id}, {"$set": {"active": False, "expiry": 0}})
     
-    # ከሁሉም VIP ቻናሎች ማስወገድ
+    # 2. ከሁሉም VIP ቻናሎች ማስወገድ
     success_count = 0
     channels = list(channels_col.find())
+    
     for ch in channels:
         try:
             bot.ban_chat_member(ch["id"], target_id)
