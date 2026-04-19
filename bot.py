@@ -377,10 +377,10 @@ def handle_all_callbacks(call):
         admin_add_vip_manual(call.message)
         return
 
-    # Admin: List Users
+     # Admin: List Users
     elif call.data == "adm_users" or call.data == "adm_list":
         active_users = list(users_col.find({"active": True}))
-        if not active_users:
+     if not active_users:
             bot.send_message(ADMIN_ID, "ምንም ገባሪ ደንበኛ የለም።")
             return
             
@@ -501,7 +501,7 @@ def handle_all_callbacks(call):
         
         # መጀመሪያ የተጠቃሚውን ዳታ ከ DB መጥራት አለብህ
         u = users_col.find_one({"user_id": target_id}) 
-        if not u:
+     if not u:
             bot.send_message(ADMIN_ID, "ተጠቃሚው በዳታቤዝ ውስጥ አልተገኘም!")
             return
 
