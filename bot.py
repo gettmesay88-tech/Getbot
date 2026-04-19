@@ -522,14 +522,17 @@ def handle_all_callbacks(call):
                 
         bot.send_message(ADMIN_ID, f"✅ የ {updated_count} ቻናሎች ስም በስኬት ታድሷል!\nአሁን ለሁሉም ተጠቃሚዎች አዲሱ ስም ይታያል።")
 
-    # User: Approve Payment (By Admin)
+        # User: Approve Payment (By Admin)
     elif call.data.startswith("approve_"):
-         target_id, plan_id = call.data.split("_")
-         target_id = int(target_id)
+        # እዚህ ጋር 3ቱንም ክፍል መያዝ አለብህ (የመጀመሪያውን _ ችላ ብለነዋል)
+        _, target_id_str, plan_id = call.data.split("_")
+        target_id = int(target_id_str)
         
         # መጀመሪያ የተጠቃሚውን ዳታ ከ DB መጥራት አለብህ
         u = users_col.find_one({"user_id": target_id}) 
-     if not u:
+        
+        # የ indentation ስህተት እዚህ ነበር - if ከ u ጋር መስመር ላይ መሆን አለበት
+        if not u:
             bot.send_message(ADMIN_ID, "ተጠቃሚው በዳታቤዝ ውስጥ አልተገኘም!")
             return
 
