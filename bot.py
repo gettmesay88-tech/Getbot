@@ -496,8 +496,8 @@ def handle_all_callbacks(call):
 
     # User: Approve Payment (By Admin)
     elif call.data.startswith("approve_"):
-        _, target_id, plan_id = call.data.split("_")
-        target_id = int(target_id)
+         target_id, plan_id = call.data.split("_")
+         target_id = int(target_id)
         
         # መጀመሪያ የተጠቃሚውን ዳታ ከ DB መጥራት አለብህ
         u = users_col.find_one({"user_id": target_id}) 
