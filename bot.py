@@ -706,7 +706,6 @@ def process_add_channel(message):
         bot.send_message(ADMIN_ID, f"❌ ስህተት፦ ቦቱ በቻናሉ ላይ አድሚን መሆኑን ያረጋግጡ።\nምክንያት፦ {e}")
         bot.register_next_step_handler(message, process_add_channel)
 
-        
 def process_manual_remove(message):
     uid_text = message.text.strip()
     
@@ -721,31 +720,12 @@ def process_manual_remove(message):
 
     target_id = int(uid_text)
     
-def process_forward_vip(message):
-    # ተጠቃሚው መልዕክት ፎርዋርድ ማድረጉን ማረጋገጥ
-    if not message.forward_from:
-        bot.send_message(ADMIN_ID, "❌ ስህተት! የላከው መልዕክት የደንበኛው መረጃ (Forward info) የለውም። \n\nእባክዎ እንደገና ሌላ መልዕክት ፎርዋርድ ያድርጉ (ሰውየው ፎርዋርድ እንዳያግድ ቅንብሩን መቀየር አለበት)።")
-        return
-
-    target_id = message.forward_from.id
-    target_name = message.forward_from.first_name
-    
-    # ፓኬጆችን ለማሳየት
-    markup = InlineKeyboardMarkup()
-    for key, val in PLANS.items():
-        # callback_data ውስጥ ID እና Plan ID እናካትታለን
-        markup.add(InlineKeyboardButton(f"💳 {val['name']}", callback_data=f"adm_set_vip_{target_id}_{key}"))
-    
-    bot.send_message(ADMIN_ID, f"✅ ተገኝቷል፦ <b>{target_name}</b> (ID: <code>{target_id}</code>)\n\nለዚህ ተጠቃሚ የሚሰጠውን ፓኬጅ ይምረጡ፦", reply_markup=markup)
-
-    
-    # 1. ከዳታቤዝ አገልግሎቱን ማቋረጥ
+    # ተጠቃሚውን ከዳታቤዝ ማስወጣት
     users_col.update_one({"user_id": target_id}, {"$set": {"active": False, "expiry": 0}})
     
-    # 2. ከሁሉም VIP ቻናሎች ማስወገድ
+    # ከሁሉም VIP ቻናሎች ማስወገድ
     success_count = 0
     channels = list(channels_col.find())
-    
     for ch in channels:
         try:
             bot.ban_chat_member(ch["id"], target_id)
@@ -756,6 +736,21 @@ def process_forward_vip(message):
 
     bot.send_message(ADMIN_ID, f"✅ ተጠቃሚ {target_id} ከ {success_count} ቻናሎች ተወግዷል፤ በዳታቤዝም አገልግሎቱ ተዘግቷል።", reply_markup=admin_panel_keyboard())
 
+def process_forward_vip(message):
+    # ተጠቃሚው መልዕክት ፎርዋርድ ማድረጉን ማረጋገጥ
+    if not message.forward_from:
+        bot.send_message(ADMIN_ID, "❌ ስህተት! የላከው መልዕክት የደንበኛው መረጃ (Forward info) የለውም። \n\nእባክዎ እንደገና ሌላ መልዕክት ፎርዋርድ ያድርጉ።")
+        return
+
+    target_id = message.forward_from.id
+    target_name = message.forward_from.first_name
+    
+    # ፓኬጆችን ለማሳየት
+    markup = InlineKeyboardMarkup()
+    for key, val in PLANS.items():
+        markup.add(InlineKeyboardButton(f"💳 {val['name']}", callback_data=f"adm_set_vip_{target_id}_{key}"))
+    
+    bot.send_message(ADMIN_ID, f"✅ ተገኝቷል፦ <b>{target_name}</b> (ID: <code>{target_id}</code>)\n\nለዚህ ተጠቃሚ የሚሰጠውን ፓኬጅ ይምረጡ፦", reply_markup=markup)
 
 # =========================================================================
 # 9. RUN BOT
