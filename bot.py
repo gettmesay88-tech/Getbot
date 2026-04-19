@@ -494,24 +494,23 @@ def handle_all_callbacks(call):
                 
         bot.send_message(ADMIN_ID, f"✅ የ {updated_count} ቻናሎች ስም በስኬት ታድሷል!\nአሁን ለሁሉም ተጠቃሚዎች አዲሱ ስም ይታያል።")
 
-         # User: Approve Payment (By Admin)
-elif call.data.startswith("approve_"):
-    _, target_id, plan_id = call.data.split("_")
-    target_id = int(target_id)
-    
-    # መጀመሪያ የተጠቃሚውን ዳታ ከ DB መጥራት አለብህ
-    u = users_col.find_one({"user_id": target_id}) 
-    if not u:
-        bot.send_message(ADMIN_ID, "ተጠቃሚው በዳታቤዝ ውስጥ አልተገኘም!")
-        return
-
+    # User: Approve Payment (By Admin)
+    elif call.data.startswith("approve_"):
+        _, target_id, plan_id = call.data.split("_")
+        target_id = int(target_id)
         
+        # መጀመሪያ የተጠቃሚውን ዳታ ከ DB መጥራት አለብህ
+        u = users_col.find_one({"user_id": target_id}) 
+        if not u:
+            bot.send_message(ADMIN_ID, "ተጠቃሚው በዳታቤዝ ውስጥ አልተገኘም!")
+            return
+
         # የተጠቃሚውን መረጃ ከቴሌግራም ለማምጣት
         user_info = bot.get_chat(target_id)
         u_name = user_info.first_name if user_info.first_name else "ተጠቃሚ"
 
         # ... (ሌላው የዳታቤዝ ኮድህ እንዳለ ይቀጥላል)
-        
+
         msg = (
             f"<b>✅ እንኳን ደስ አለዎት! ክፍያዎ ተረጋግጧል።</b>\n\n"
             f"👤 ስም: {call.from_user.first_name}\n" 
