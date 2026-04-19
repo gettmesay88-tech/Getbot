@@ -539,9 +539,9 @@ def handle_all_callbacks(call):
         bot.answer_callback_query(call.id, "መረጃው እየታደሰ ነው...")
         handle_my_service(call.message) # መልዕክቱን እንዲያድሰው
 
-    # User: View Description with Real-time Update
-    # User: View Description
-   elif call.data.startswith("view_ch_"):
+          # User: View Description with Real-time Update
+          # User: View Description
+    elif call.data.startswith("view_ch_"):
         try:
             ch_id = int(call.data.split("_")[2])
             info = bot.get_chat(ch_id)
