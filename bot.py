@@ -569,7 +569,7 @@ def handle_all_callbacks(call):
     elif call.data == "refresh_service":
         bot.answer_callback_query(call.id, "መረጃው እየታደሰ ነው...")
         handle_my_service(call.message) # መልዕክቱን እንዲያድሰው
-
+call.data.startswith("get_last_5_")
           # User: View Description with Real-time Update
           # User: View Description
     elif call.data.startswith("view_ch_"):
@@ -583,35 +583,39 @@ def handle_all_callbacks(call):
 
             # የፊልም ፖስተር ማምጫ (ቅደም ተከተል የተስተካከለ)
     elif call.data.startswith("get_last_5_"):
-        ch_id = int(call.data.split("_")[3])
-        uid = call.from_user.id
-        wait_msg = bot.send_message(uid, "<b>⏳ እባክዎ ይጠብቁ... ፊልሞችን እያመጣሁ ነው</b>")
-        try:
-            ch_info = bot.get_chat(ch_id)
-            bot.send_message(uid, f"<b>🎬 ከ {ch_info.title} የተመረጡ አዳዲስ የፊልም ፖስተሮች፦</b>")
-            
-            temp_msg = bot.send_message(ch_id, ".")
-            last_id = temp_msg.message_id
-            bot.delete_message(ch_id, last_id)
-            
-            photo_ids = []
-            # ወደ ኋላ በመሄድ አዳዲሶቹን 5 ፎቶዎች መፈለግ
-            for msg_id in range(last_id - 1, last_id - 51, -1):
-                if len(photo_ids) >= 5: break
-                try:
-                    test_msg = bot.forward_message(ADMIN_ID, ch_id, msg_id)
-                    if test_msg.content_type == 'photo':
-                        photo_ids.append(msg_id)
-                    bot.delete_message(ADMIN_ID, test_msg.message_id)
-                except: continue
-            
-            if not photo_ids:
-                bot.send_message(uid, "<b>❌ በዚህ ቻናል ላይ ምንም የፊልም ፖስተር አልተገኘም።</b>")
-            else:
-                photo_ids.reverse() 
-                for p_id in photo_ids:
-                    bot.forward_message(uid, ch_id, p_id) # በአንድ በአንድ መላክ
-                bot.send_message(uid, "<b>✅ ሁሉንም ፊልሞች ለማግኘት VIP አባል ይሁኑ!</b>")
+    ch_id = int(call.data.split("_")[3])
+    uid = call.from_user.id
+    wait_msg = bot.send_message(uid, "<b>⏳ እባክዎ ይጠብቁ... ፊልሞችን እያመጣሁ ነው</b>")
+    
+    try:
+        ch_info = bot.get_chat(ch_id)
+        bot.send_message(uid, f"<b>🎬 ከ {ch_info.title} የተመረጡ አዳዲስ የፊልም ፖስተሮች፦</b>")
+        
+        temp_msg = bot.send_message(ch_id, ".")
+        last_id = temp_msg.message_id
+        bot.delete_message(ch_id, last_id)
+        
+        photo_ids = []
+        for msg_id in range(last_id - 1, last_id - 51, -1):
+            if len(photo_ids) >= 5:
+                break
+            try:
+                test_msg = bot.forward_message(ADMIN_ID, ch_id, msg_id)
+                if test_msg.content_type == 'photo':
+                    photo_ids.append(msg_id)
+                bot.delete_message(ADMIN_ID, test_msg.message_id)
+            except:
+                continue
+        
+        if not photo_ids:
+            bot.send_message(uid, "<b>❌ ፖስተር አልተገኘም።</b>")
+        else:
+            photo_ids.reverse()
+            for p_id in photo_ids:
+                bot.forward_message(uid, ch_id, p_id)
+
+    except Exception as e:
+        bot.send_message(uid, f"❌ ስህተት: {e}")
 
 # =========================================================================
 # 8. PAYMENT & ADMIN PROCESSES
