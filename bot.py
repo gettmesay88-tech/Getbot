@@ -373,10 +373,10 @@ def handle_all_callbacks(call):
         admin_add_vip_manual(call.message)
         return
 
-     # Admin: List Users
+         # Admin: List Users
     elif call.data == "adm_users" or call.data == "adm_list":
         active_users = list(users_col.find({"active": True}))
-     if not active_users:
+        if not active_users: # ይህ መስመር ከ elif ጋር ትይዩ መሆን አለበት
             bot.send_message(ADMIN_ID, "ምንም ገባሪ ደንበኛ የለም።")
             return
             
