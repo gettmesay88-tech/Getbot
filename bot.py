@@ -499,9 +499,16 @@ def handle_all_callbacks(call):
         bot.send_message(ADMIN_ID, f"✅ የ {updated_count} ቻናሎች ስም በስኬት ታድሷል!\nአሁን ለሁሉም ተጠቃሚዎች አዲሱ ስም ይታያል።")
 
          # User: Approve Payment (By Admin)
-    elif call.data.startswith("approve_"):
-        _, target_id, plan_id = call.data.split("_")
-        target_id = int(target_id)
+  elif call.data.startswith("approve_"):
+    _, target_id, plan_id = call.data.split("_")
+    target_id = int(target_id)
+    
+    # መጀመሪያ የተጠቃሚውን ዳታ ከ DB መጥራት አለብህ
+    u = users_col.find_one({"user_id": target_id}) 
+    if not u:
+        bot.send_message(ADMIN_ID, "ተጠቃሚው በዳታቤዝ ውስጥ አልተገኘም!")
+        return
+
         
         # የተጠቃሚውን መረጃ ከቴሌግራም ለማምጣት
         user_info = bot.get_chat(target_id)
@@ -539,7 +546,7 @@ def handle_all_callbacks(call):
 
     # User: View Description with Real-time Update
     # User: View Description
-   elif call.data.startswith("view_ch_"):
+       elif call.data.startswith("view_ch_"):
         try:
             ch_id = int(call.data.split("_")[2])
             info = bot.get_chat(ch_id)
@@ -549,7 +556,7 @@ def handle_all_callbacks(call):
             bot.answer_callback_query(call.id, f"❌ መግለጫውን ማግኘት አልተቻለም።\nምክንያት፦ {e}", show_alert=True)
 
             # የፊልም ፖስተር ማምጫ (ቅደም ተከተል የተስተካከለ)
-   elif call.data.startswith("get_last_5_"):
+    elif call.data.startswith("get_last_5_"):
         ch_id = int(call.data.split("_")[3])
         uid = call.from_user.id
         wait_msg = bot.send_message(uid, "<b>⏳ እባክዎ ይጠብቁ... ፊልሞችን እያመጣሁ ነው</b>")
@@ -572,7 +579,7 @@ def handle_all_callbacks(call):
                     bot.delete_message(ADMIN_ID, test_msg.message_id)
                 except: continue
             
-                        if not photo_ids:
+                 if not photo_ids:
                 bot.send_message(uid, "<b>❌ በዚህ ቻናል ላይ ምንም የፊልም ፖስተር አልተገኘም።</b>")
             else:
                 photo_ids.reverse() 
