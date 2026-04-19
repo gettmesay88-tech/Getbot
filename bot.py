@@ -77,6 +77,28 @@ def to_eth_date(timestamp):
         logger.error(f"Date conversion error: {e}")
         return "ያልታወቀ ቀን"
 
+def execute_manual_vip(target_id, days, message):
+    expiry_ts = (datetime.now() + timedelta(days=days)).timestamp()
+    eth_date = to_eth_date(expiry_ts)
+
+    # ዳታቤዝ ላይ መመዝገብ
+    users_col.update_one(
+        {"user_id": target_id},
+        {"$set": {"active": True, "expiry": expiry_ts, "plan": f"custom_{days}day", "joined_at": time.time()}},
+        upsert=True
+    )
+
+    bot.send_message(ADMIN_ID, f"✅ ተሳክቷል!\n👤 ID: `{target_id}`\n📅 ቆይታ: {days} ቀን\n🔚 የሚያበቃው: {eth_date}")
+
+    try:
+        bot.send_message(target_id, 
+            f"<b>✅ እንኳን ደስ አለዎት! የአባልነትዎ ጸድቋል።</b>\n\n"
+            f"📅 ቆይታ፦ {days} ቀናት\n"
+            f"⏳ የሚያበቃው፦ {eth_date}\n\n"
+            f"የቻናል ሊንኮችን ለማግኘት '👤 የእኔ አገልግሎት' የሚለውን ይጫኑ።")
+    except:
+        bot.send_message(ADMIN_ID, "⚠️ ለተጠቃሚው መልዕክት መላክ አልተቻለም።")
+
 def is_restriction_on():
     """Checks if content protection is enabled"""
     data = settings_col.find_one({"type": "config"})
@@ -178,6 +200,39 @@ def admin_panel_keyboard():
 # =========================================================================
 # 6. MESSAGE HANDLERS
 # =========================================================================
+@bot.message_handler(commands=['vip'], func=lambda m: m.from_user.id == ADMIN_ID)
+def admin_add_vip_manual(message):
+    msg = bot.send_message(ADMIN_ID, "👤 VIP የሚሆነውን ሰው መልዕክት **Forward** ያድርጉ ወይም **ID** (ቁጥር) ይላኩ፦")
+    bot.register_next_step_handler(msg, process_vip_input)
+
+def process_vip_input(message):
+    target_id = None
+    user_label = "ተጠቃሚ"
+
+    if message.forward_from:
+        target_id = message.forward_from.id
+        user_label = message.forward_from.first_name
+    elif message.text and message.text.isdigit():
+        target_id = int(message.text)
+        user_label = f"ID: {target_id}"
+    
+    if target_id:
+        markup = InlineKeyboardMarkup()
+        markup.row(
+            InlineKeyboardButton("1 ቀን", callback_data=f"manadd_{target_id}_1"),
+            InlineKeyboardButton("7 ቀን", callback_data=f"manadd_{target_id}_7")
+        )
+        markup.row(
+            InlineKeyboardButton("1 ወር (30)", callback_data=f"manadd_{target_id}_30"),
+            InlineKeyboardButton("3 ወር (90)", callback_data=f"manadd_{target_id}_90")
+        )
+        markup.add(InlineKeyboardButton("✍️ የራስህን ቀን ጻፍ", callback_data=f"manadd_custom_{target_id}"))
+        markup.add(InlineKeyboardButton("❌ ሰርዝ", callback_data="cancel_admin"))
+        
+        bot.send_message(ADMIN_ID, f"🎯 <b>{user_label}</b> ተለይቷል።\nለስንት ቀን አባል እንዲሆን ይፈልጋሉ?", reply_markup=markup)
+    else:
+        bot.send_message(ADMIN_ID, "❌ ስህተት፦ እባክዎ መልዕክት Forward ያድርጉ ወይም ትክክለኛ ID ይላኩ።")
+
 @bot.message_handler(commands=['start'])
 def handle_start(message):
     uid = message.chat.id
@@ -269,6 +324,23 @@ def handle_new_movies(message):
 @bot.callback_query_handler(func=lambda call: True)
 def handle_all_callbacks(call):
     uid, mid = call.from_user.id, call.message.message_id
+
+        # --- የአድሚን VIP መጨመሪያ Button Logic ---
+    if call.data.startswith('manadd_'):
+        if call.data.startswith('manadd_custom_'):
+            t_id = call.data.split('_')[2]
+            msg = bot.send_message(ADMIN_ID, "✍️ እባክዎ የቀናትን ብዛት በቁጥር ብቻ ይላኩ (ለምሳሌ፦ 10)፦")
+            bot.register_next_step_handler(msg, lambda m: execute_manual_vip(int(t_id), int(m.text), m) if m.text.isdigit() else bot.send_message(ADMIN_ID, "❌ ስህተት፦ ቁጥር ብቻ ያስገቡ!"))
+            return
+
+        _, t_id, days = call.data.split('_')
+        execute_manual_vip(int(t_id), int(days), call.message)
+        return
+
+    if call.data == "cancel_admin":
+        bot.edit_message_text("❌ ተግባሩ ተሰርዟል።", ADMIN_ID, mid)
+        return
+
     
     # User: Plan Selection
     if call.data.startswith("buy_"):
