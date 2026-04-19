@@ -105,25 +105,22 @@ def is_restriction_on():
     return data.get("restriction", True) if data else True
 
 def get_channel_status_markup(user_id):
-    """Generates a list of channels with join status icons and numbers"""
     markup = InlineKeyboardMarkup()
     channels = list(channels_col.find())
     
-    if not channels:
-        markup.add(InlineKeyboardButton("ምንም ቻናል አልተጨመረም", callback_data="none"))
-        return markup
-
-    # enumerate በመጠቀም 1, 2, 3 እያለ ቁጥር ይሰጣል
     for index, ch in enumerate(channels, start=1):
         try:
             member = bot.get_chat_member(ch["id"], user_id)
-            status_icon = "✅" if member.status in ['member', 'administrator', 'creator'] else "☑️"
+            if member.status in ['member', 'administrator', 'creator']:
+                status_icon = "✅"
+                # ቀጥታ ወደ ቻናሉ የሚወስድ ሊንክ
+                link = f"https://t.me/c/{str(ch['id']).replace('-100', '')}/1" 
+            else:
+                status_icon = "☑️"
+                # አዲስ የግብዣ ሊንክ
+                link = bot.create_chat_invite_link(ch["id"], member_limit=1).invite_link
             
-            # የግብዣ ሊንክ መፍጠር
-            invite = bot.create_chat_invite_link(ch["id"], member_limit=1).invite_link
-            
-            # ስሙን በቁጥር (ምሳሌ፦ ✅ Channel Name 1) እንዲያሳይ
-            markup.add(InlineKeyboardButton(f"{status_icon} {ch['name']} {index}", url=invite))
+            markup.add(InlineKeyboardButton(f"{status_icon} {ch['name']} {index}", url=link))
         except Exception:
             continue
             
@@ -170,6 +167,13 @@ def auto_kick_worker():
 # =========================================================================
 # 5. KEYBOARDS
 # =========================================================================
+def main_menu_keyboard():
+    markup = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
+    markup.add(KeyboardButton("💎 VIP ለመመዝገብ"), KeyboardButton("👤 የእኔ አገልግሎት"))
+    markup.add(KeyboardButton("🎬 አዳዲስ ፊልሞች"), KeyboardButton("📜 VIP Channel ዝርዝር"))
+    markup.add(KeyboardButton("🆘 እገዛ (Help)"))
+    return markup
+
 def admin_panel_keyboard():
     markup = InlineKeyboardMarkup(row_width=2)
     
@@ -495,24 +499,16 @@ def handle_all_callbacks(call):
         bot.send_message(ADMIN_ID, f"✅ የ {updated_count} ቻናሎች ስም በስኬት ታድሷል!\nአሁን ለሁሉም ተጠቃሚዎች አዲሱ ስም ይታያል።")
 
   # User: Approve Payment (By Admin)
-    elif call.data.startswith("approve_"):
+        elif call.data.startswith("approve_"):
         _, target_id, plan_id = call.data.split("_")
         target_id = int(target_id)
         
-        days = PLANS[plan_id]["days"]
-        expiry_ts = (datetime.now() + timedelta(days=days)).timestamp()
+        # የተጠቃሚውን መረጃ ከቴሌግራም ለማምጣት
+        user_info = bot.get_chat(target_id)
+        u_name = user_info.first_name if user_info.first_name else "ተጠቃሚ"
+
+        # ... (ሌላው የዳታቤዝ ኮድህ እንዳለ ይቀጥላል)
         
-        # የዳታቤዝ ማሻሻያ
-        users_col.update_one(
-            {"user_id": target_id},
-            {"$set": {"active": True, "expiry": expiry_ts, "plan": plan_id, "joined_at": time.time()}},
-            upsert=True
-        )
-        
-        # መረጃውን ከዳታቤዝ እናምጣ
-        u = users_col.find_one({"user_id": target_id})
-        
-        # ያዘዝከኝ መልዕክት (ያለ ምንም ለውጥ)
         msg = (
             f"<b>✅ እንኳን ደስ አለዎት! ክፍያዎ ተረጋግጧል።</b>\n\n"
             f"👤 ስም: {call.from_user.first_name}\n" 
@@ -536,6 +532,10 @@ def handle_all_callbacks(call):
         )
         markup.add(InlineKeyboardButton("✍️ የራስህን መልዕክት ጻፍ", callback_data=f"rj_custom_{target_id}"))
         bot.edit_message_text("ውድቅ የተደረገበትን ምክንያት ይምረጡ፦", ADMIN_ID, mid, reply_markup=markup)
+
+    elif call.data == "refresh_service":
+        bot.answer_callback_query(call.id, "መረጃው እየታደሰ ነው...")
+        handle_my_service(call.message) # መልዕክቱን እንዲያድሰው
 
     # User: View Description with Real-time Update
     # User: View Description
@@ -577,14 +577,13 @@ def handle_all_callbacks(call):
             else:
                 # --- ቁልፍ ለውጥ እዚህ ጋር ነው ---
                 # የፎቶዎቹን ቅደም ተከተል ወደ መደበኛ እንመልሰዋለን (አዲሱ መጨረሻ ላይ እንዲሆን)
+                            if not photo_ids:
+                bot.send_message(uid, "<b>❌ በዚህ ቻናል ላይ ምንም የፊልም ፖስተር አልተገኘም።</b>")
+            else:
                 photo_ids.reverse() 
-                
-                bot.forward_messages(uid, ch_id, photo_ids)
+                for p_id in photo_ids:
+                    bot.forward_message(uid, ch_id, p_id) # በአንድ በአንድ መላክ
                 bot.send_message(uid, "<b>✅ ሁሉንም ፊልሞች ለማግኘት VIP አባል ይሁኑ!</b>")
-        except Exception as e:
-            bot.send_message(uid, "❌ ፊልሞቹን ማግኘት አልተቻለም።")
-        bot.delete_message(uid, wait_msg.message_id)
-
 
 # =========================================================================
 # 8. PAYMENT & ADMIN PROCESSES
