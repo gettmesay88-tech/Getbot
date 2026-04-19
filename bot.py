@@ -377,10 +377,6 @@ def handle_all_callbacks(call):
         admin_add_vip_manual(call.message)
         return
 
-    # Admin: List Users (የድሮው ኮድህ እዚህ ይቀጥላል)
-    elif call.data == "adm_users" or call.data == "adm_list":
-        # ...
-
     # Admin: List Users
     elif call.data == "adm_users" or call.data == "adm_list":
         active_users = list(users_col.find({"active": True}))
