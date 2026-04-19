@@ -176,12 +176,6 @@ def main_menu_keyboard():
 
 def admin_panel_keyboard():
     markup = InlineKeyboardMarkup(row_width=2)
-    
-    # አዲሱ "VIP አባል ጨምር" ቁልፍ መጀመሪያ ላይ እንዲሆን
-    markup.add(
-        InlineKeyboardButton("➕ VIP አባል ጨምር", callback_data="adm_add_vip_manual")
-    )
-    
     markup.add(
         InlineKeyboardButton("📊 የደንበኞች ዝርዝር", callback_data="adm_list"),
         InlineKeyboardButton("📢 ብሮድካስት", callback_data="adm_bc")
@@ -190,12 +184,14 @@ def admin_panel_keyboard():
         InlineKeyboardButton("➕ ቻናል ጨምር", callback_data="adm_add_ch"),
         InlineKeyboardButton("➖ ቻናል ቀንስ", callback_data="adm_rem_ch")
     )
+    # አዲሱ በተን እዚህ አለ
+    markup.add(InlineKeyboardButton("💎 VIP አባል ጨምር", callback_data="adm_add_vip")) 
     
     markup.add(InlineKeyboardButton("🔄 የቻናል ስሞችን አድስ (Sync)", callback_data="adm_sync_names"))
     
     res_text = "🚫 Restriction: ON" if is_restriction_on() else "🔓 Restriction: OFF"
     markup.add(InlineKeyboardButton(res_text, callback_data="adm_toggle_res"))
-    markup.add(InlineKeyboardButton("👤 ተጠቃሚ ማባረር (Manual)", callback_data="adm_manual_remove"))
+    markup.add(InlineKeyboardButton("👤 ተጠቃሚ ማባረር (Manual)", callback_data="adm_manual_remove")) 
 
     return markup
 
@@ -430,6 +426,38 @@ def handle_all_callbacks(call):
         channels = list(channels_col.find())
         for index, ch in enumerate(channels, start=1):
             markup.add(InlineKeyboardButton(f"❌ {ch['name']} {index}", callback_data=f"adm_confirm_del_{ch['id']}"))
+
+    # አድሚን VIP ለመጨመር ሲጀምር (ፎርዋርድ የሚጠይቀው)
+    elif call.data == "adm_add_vip":
+        msg = bot.send_message(ADMIN_ID, "እባክዎ አባል ማድረግ የሚፈልጉትን የሰውን መልዕክት <b>ፎርዋርድ (Forward)</b> ያድርጉልኝ፦")
+        bot.register_next_step_handler(msg, process_forward_vip)
+
+    # አድሚን ጥቅሉን ሲመርጥ (በቀጥታ አባል የሚያደርገው)
+    elif call.data.startswith("adm_set_vip_"):
+        # callback: adm_set_vip_{target_id}_{plan_id}
+        data_parts = call.data.split("_")
+        target_id = int(data_parts[3])
+        plan_id = data_parts[4]
+        
+        # ቀን ማስላት
+        days = PLANS[plan_id]["days"]
+        expiry_ts = (datetime.now() + timedelta(days=days)).timestamp()
+        
+        # ዳታቤዝ ማዘመን
+        users_col.update_one(
+            {"user_id": target_id},
+            {"$set": {"active": True, "expiry": expiry_ts, "plan": plan_id, "joined_at": time.time()}},
+            upsert=True
+        )
+        
+        bot.answer_callback_query(call.id, "✅ ተጠቃሚው VIP ሆኗል!")
+        bot.edit_message_text(f"✅ ተጠቃሚ {target_id} ለ {PLANS[plan_id]['name']} VIP ሆኖ ተመዝግቧል።", ADMIN_ID, mid)
+        
+        # ተጠቃሚውን ማሳወቅ
+        try:
+            bot.send_message(target_id, "<b>🎉 እንኳን ደስ አለዎት!</b>\n\nአድሚኑ VIP አባል አድርገውዎታል። አሁን '👤 የእኔ አገልግሎት' የሚለውን በመጫን ቻናሎቹን መከታተል ይችላሉ።")
+        except:
+            pass
         
         # አዲሱ "ሁሉንም አስወግድ" በተን እዚህ ጋር ነው
         markup.add(InlineKeyboardButton("🔥 ሁሉንም ቻናል አስወግድ", callback_data="adm_del_all_confirm"))
@@ -689,6 +717,24 @@ def process_manual_remove(message):
         return
 
     target_id = int(uid_text)
+    
+def process_forward_vip(message):
+    # ተጠቃሚው መልዕክት ፎርዋርድ ማድረጉን ማረጋገጥ
+    if not message.forward_from:
+        bot.send_message(ADMIN_ID, "❌ ስህተት! የላከው መልዕክት የደንበኛው መረጃ (Forward info) የለውም። \n\nእባክዎ እንደገና ሌላ መልዕክት ፎርዋርድ ያድርጉ (ሰውየው ፎርዋርድ እንዳያግድ ቅንብሩን መቀየር አለበት)።")
+        return
+
+    target_id = message.forward_from.id
+    target_name = message.forward_from.first_name
+    
+    # ፓኬጆችን ለማሳየት
+    markup = InlineKeyboardMarkup()
+    for key, val in PLANS.items():
+        # callback_data ውስጥ ID እና Plan ID እናካትታለን
+        markup.add(InlineKeyboardButton(f"💳 {val['name']}", callback_data=f"adm_set_vip_{target_id}_{key}"))
+    
+    bot.send_message(ADMIN_ID, f"✅ ተገኝቷል፦ <b>{target_name}</b> (ID: <code>{target_id}</code>)\n\nለዚህ ተጠቃሚ የሚሰጠውን ፓኬጅ ይምረጡ፦", reply_markup=markup)
+
     
     # 1. ከዳታቤዝ አገልግሎቱን ማቋረጥ
     users_col.update_one({"user_id": target_id}, {"$set": {"active": False, "expiry": 0}})
