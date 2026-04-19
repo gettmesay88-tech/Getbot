@@ -170,15 +170,14 @@ def auto_kick_worker():
 # =========================================================================
 # 5. KEYBOARDS
 # =========================================================================
-def main_menu_keyboard():
-    markup = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
-    markup.add(KeyboardButton("💎 VIP ለመመዝገብ"), KeyboardButton("👤 የእኔ አገልግሎት"))
-    markup.add(KeyboardButton("🎬 አዳዲስ ፊልሞች"), KeyboardButton("📜 VIP Channel ዝርዝር"))
-    markup.add(KeyboardButton("🆘 እገዛ (Help)"))
-    return markup
-
 def admin_panel_keyboard():
     markup = InlineKeyboardMarkup(row_width=2)
+    
+    # አዲሱ "VIP አባል ጨምር" ቁልፍ መጀመሪያ ላይ እንዲሆን
+    markup.add(
+        InlineKeyboardButton("➕ VIP አባል ጨምር", callback_data="adm_add_vip_manual")
+    )
+    
     markup.add(
         InlineKeyboardButton("📊 የደንበኞች ዝርዝር", callback_data="adm_list"),
         InlineKeyboardButton("📢 ብሮድካስት", callback_data="adm_bc")
@@ -187,7 +186,7 @@ def admin_panel_keyboard():
         InlineKeyboardButton("➕ ቻናል ጨምር", callback_data="adm_add_ch"),
         InlineKeyboardButton("➖ ቻናል ቀንስ", callback_data="adm_rem_ch")
     )
-    # የቻናል ስሞችን ማደሻ አዲሱ በተን
+    
     markup.add(InlineKeyboardButton("🔄 የቻናል ስሞችን አድስ (Sync)", callback_data="adm_sync_names"))
     
     res_text = "🚫 Restriction: ON" if is_restriction_on() else "🔓 Restriction: OFF"
@@ -369,6 +368,14 @@ def handle_all_callbacks(call):
         instruction = f"{acc_info}\n\n<b>📸 ክፍያውን ከፈጸሙ በኋላ የደረሰኙን ፎቶ (Screenshot) እዚህ ይላኩ።</b>\n\nለመሰረዝ /cancel ይበሉ።"
         bot.edit_message_text(instruction, uid, mid)
         bot.register_next_step_handler(call.message, get_payment_screenshot)
+            # ይህንን እዚህ ጋር ጨምር
+    elif call.data == "adm_add_vip_manual":
+        admin_add_vip_manual(call.message)
+        return
+
+    # Admin: List Users (የድሮው ኮድህ እዚህ ይቀጥላል)
+    elif call.data == "adm_users" or call.data == "adm_list":
+        # ...
 
     # Admin: List Users
     elif call.data == "adm_users" or call.data == "adm_list":
