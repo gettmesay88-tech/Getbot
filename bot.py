@@ -502,13 +502,12 @@ def handle_all_callbacks(call):
 
         # Admin: Manual Remove User
     elif call.data == "adm_manual_remove":
-        msg = bot.send_message(ADMIN_ID, "እባክዎ ማስወገድ የሚፈልጉትን ተጠቃሚ ID (User ID) ይላኩ፦\n(ለመለሰረዝ /cancel ይበሉ)")
-        bot.register_next_step_handler(msg, process_manual_remove)
+         msg = bot.send_message(ADMIN_ID, "እባክዎ ማስወገድ የሚፈልጉትን ተጠቃሚ ID (User ID) ይላኩ፦\n(ለመለሰረዝ /cancel ይበሉ)")
+         bot.register_next_step_handler(msg, process_manual_remove)
 
    elif call.data == "adm_add_user_manual":
         msg = bot.send_message(ADMIN_ID, "እባክዎ መመዝገብ የሚፈልጉትን ተጠቃሚ <b>ID</b> ይላኩ ወይም ከመልዕክቱ <b>Forward</b> ያድርጉልኝ፦\n\nለመሰረዝ /cancel ይበሉ።")
         bot.register_next_step_handler(msg, process_manual_user_id)
-    
 
     elif call.data == "adm_sync_names":
         bot.answer_callback_query(call.id, "የቻናል ስሞችን የማደስ ስራ እየተሰራ ነው...")
@@ -529,36 +528,31 @@ def handle_all_callbacks(call):
 
         # User: Approve Payment (By Admin)
     elif call.data.startswith("approve_"):
-        # እዚህ ጋር 3ቱንም ክፍል መያዝ አለብህ (የመጀመሪያውን _ ችላ ብለነዋል)
-        _, target_id_str, plan_id = call.data.split("_")
-        target_id = int(target_id_str)
-        
-        # መጀመሪያ የተጠቃሚውን ዳታ ከ DB መጥራት አለብህ
-        u = users_col.find_one({"user_id": target_id}) 
-        
-        # የ indentation ስህተት እዚህ ነበር - if ከ u ጋር መስመር ላይ መሆን አለበት
-        if not u:
-            bot.send_message(ADMIN_ID, "ተጠቃሚው በዳታቤዝ ውስጥ አልተገኘም!")
-            return
+    data = call.data.split("_")
+    target_id = int(data[1])
+    plan_id = data[2]
 
-        # የተጠቃሚውን መረጃ ከቴሌግራም ለማምጣት
-        user_info = bot.get_chat(target_id)
-        u_name = user_info.first_name if user_info.first_name else "ተጠቃሚ"
+    u = users_col.find_one({"user_id": target_id})
 
-        # ... (ሌላው የዳታቤዝ ኮድህ እንዳለ ይቀጥላል)
+    if not u:
+        bot.send_message(ADMIN_ID, "ተጠቃሚው በዳታቤዝ ውስጥ አልተገኘም!")
+        return
 
-        msg = (
-            f"<b>✅ እንኳን ደስ አለዎት! ክፍያዎ ተረጋግጧል።</b>\n\n"
-            f"👤 ስም: {call.from_user.first_name}\n" 
-            f"📅 የገቡበት: {to_eth_date(u.get('joined_at', time.time()))}\n" 
-            f"⏳ የሚያበቃው {to_eth_date(u['expiry'])}\n\n" 
-            f"☑️ - ቻናል ውስጥ አልገቡም\n"
-            f"✅ - ቻናል ውስጥ ገብተዋል\n\n" 
-            f"የሁሉንም ቻናሎች ሊንኮች ከታች ይገናኛሉ🔻"
-        )
-        
-        bot.send_message(target_id, msg, reply_markup=get_channel_status_markup(target_id))
-        bot.edit_message_text(f"✅ ተጠቃሚ {target_id} ጸድቋል!", ADMIN_ID, mid)
+    user_info = bot.get_chat(target_id)
+    u_name = user_info.first_name if user_info.first_name else "ተጠቃሚ"
+
+    msg = (
+        f"<b>✅ እንኳን ደስ አለዎት! ክፍያዎ ተረጋግጧል።</b>\n\n"
+        f"👤 ስም: {call.from_user.first_name}\n"
+        f"📅 የገቡበት: {to_eth_date(u.get('joined_at', time.time()))}\n"
+        f"⏳ የሚያበቃው {to_eth_date(u['expiry'])}\n\n"
+        f"☑️ - ቻናል ውስጥ አልገቡም\n"
+        f"✅ - ቻናል ውስጥ ገብተዋል\n\n"
+        f"የሁሉንም ቻናሎች ሊንኮች ከታች ይገናኛሉ🔻"
+    )
+
+    bot.send_message(target_id, msg, reply_markup=get_channel_status_markup(target_id))
+    bot.edit_message_text(f"✅ ተጠቃሚ {target_id} ጸድቋል!", ADMIN_ID, mid)
 
       # User: Reject Payment (By Admin)
     elif call.data.startswith("reject_"):
@@ -591,31 +585,38 @@ call.data.startswith("get_last_5_")
     ch_id = int(call.data.split("_")[3])
     uid = call.from_user.id
     wait_msg = bot.send_message(uid, "<b>⏳ እባክዎ ይጠብቁ... ፊልሞችን እያመጣሁ ነው</b>")
-    
+
     try:
         ch_info = bot.get_chat(ch_id)
         bot.send_message(uid, f"<b>🎬 ከ {ch_info.title} የተመረጡ አዳዲስ የፊልም ፖስተሮች፦</b>")
-        
+
         temp_msg = bot.send_message(ch_id, ".")
         last_id = temp_msg.message_id
         bot.delete_message(ch_id, last_id)
-        
+
         photo_ids = []
+
         for msg_id in range(last_id - 1, last_id - 51, -1):
             if len(photo_ids) >= 5:
                 break
+
             try:
                 test_msg = bot.forward_message(ADMIN_ID, ch_id, msg_id)
+
                 if test_msg.content_type == 'photo':
                     photo_ids.append(msg_id)
+
                 bot.delete_message(ADMIN_ID, test_msg.message_id)
+
             except:
                 continue
-        
+
         if not photo_ids:
             bot.send_message(uid, "<b>❌ ፖስተር አልተገኘም።</b>")
+
         else:
             photo_ids.reverse()
+
             for p_id in photo_ids:
                 bot.forward_message(uid, ch_id, p_id)
 
