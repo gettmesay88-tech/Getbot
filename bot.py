@@ -502,10 +502,10 @@ def handle_all_callbacks(call):
 
         # Admin: Manual Remove User
     elif call.data == "adm_manual_remove":
-         msg = bot.send_message(ADMIN_ID, "እባክዎ ማስወገድ የሚፈልጉትን ተጠቃሚ ID (User ID) ይላኩ፦\n(ለመለሰረዝ /cancel ይበሉ)")
-         bot.register_next_step_handler(msg, process_manual_remove)
+        msg = bot.send_message(ADMIN_ID, "እባክዎ ማስወገድ የሚፈልጉትን ተጠቃሚ ID (User ID) ይላኩ፦\n(ለመሰረዝ /cancel ይበሉ)")
+        bot.register_next_step_handler(msg, process_manual_remove)
 
-   elif call.data == "adm_add_user_manual":
+    elif call.data == "adm_add_user_manual":
         msg = bot.send_message(ADMIN_ID, "እባክዎ መመዝገብ የሚፈልጉትን ተጠቃሚ <b>ID</b> ይላኩ ወይም ከመልዕክቱ <b>Forward</b> ያድርጉልኝ፦\n\nለመሰረዝ /cancel ይበሉ።")
         bot.register_next_step_handler(msg, process_manual_user_id)
 
@@ -518,111 +518,199 @@ def handle_all_callbacks(call):
             try:
                 # ከቴሌግራም ወቅታዊውን ስም መውሰድ
                 chat_info = bot.get_chat(ch["id"])
+                
                 # ዳታቤዝ ላይ ስሙን ማዘመን
-                channels_col.update_one({"id": ch["id"]}, {"$set": {"name": chat_info.title}})
+                channels_col.update_one(
+                    {"id": ch["id"]},
+                    {"$set": {"name": chat_info.title}}
+                )
                 updated_count += 1
+
             except Exception:
                 continue
                 
-        bot.send_message(ADMIN_ID, f"✅ የ {updated_count} ቻናሎች ስም በስኬት ታድሷል!\nአሁን ለሁሉም ተጠቃሚዎች አዲሱ ስም ይታያል።")
+        bot.send_message(
+            ADMIN_ID,
+            f"✅ የ {updated_count} ቻናሎች ስም በስኬት ታድሷል!\nአሁን ለሁሉም ተጠቃሚዎች አዲሱ ስም ይታያል።"
+        )
 
-        # User: Approve Payment (By Admin)
+    # User: Approve Payment (By Admin)
     elif call.data.startswith("approve_"):
-    data = call.data.split("_")
-    target_id = int(data[1])
-    plan_id = data[2]
+        data = call.data.split("_")
+        target_id = int(data[1])
+        plan_id = data[2]
 
-    u = users_col.find_one({"user_id": target_id})
+        plan = PLANS[plan_id]
+        expiry_ts = (datetime.now() + timedelta(days=plan["days"])).timestamp()
 
-    if not u:
-        bot.send_message(ADMIN_ID, "ተጠቃሚው በዳታቤዝ ውስጥ አልተገኘም!")
-        return
+        users_col.update_one(
+            {"user_id": target_id},
+            {
+                "$set": {
+                    "active": True,
+                    "expiry": expiry_ts,
+                    "plan": plan_id,
+                    "joined_at": time.time()
+                }
+            },
+            upsert=True
+        )
 
-    user_info = bot.get_chat(target_id)
-    u_name = user_info.first_name if user_info.first_name else "ተጠቃሚ"
+        u = users_col.find_one({"user_id": target_id})
 
-    msg = (
-        f"<b>✅ እንኳን ደስ አለዎት! ክፍያዎ ተረጋግጧል።</b>\n\n"
-        f"👤 ስም: {call.from_user.first_name}\n"
-        f"📅 የገቡበት: {to_eth_date(u.get('joined_at', time.time()))}\n"
-        f"⏳ የሚያበቃው {to_eth_date(u['expiry'])}\n\n"
-        f"☑️ - ቻናል ውስጥ አልገቡም\n"
-        f"✅ - ቻናል ውስጥ ገብተዋል\n\n"
-        f"የሁሉንም ቻናሎች ሊንኮች ከታች ይገናኛሉ🔻"
-    )
+        if not u:
+            bot.send_message(ADMIN_ID, "ተጠቃሚው በዳታቤዝ ውስጥ አልተገኘም!")
+            return
 
-    bot.send_message(target_id, msg, reply_markup=get_channel_status_markup(target_id))
-    bot.edit_message_text(f"✅ ተጠቃሚ {target_id} ጸድቋል!", ADMIN_ID, mid)
+        user_info = bot.get_chat(target_id)
+        u_name = user_info.first_name if user_info.first_name else "ተጠቃሚ"
 
-      # User: Reject Payment (By Admin)
+        msg = (
+            f"<b>✅ እንኳን ደስ አለዎት! ክፍያዎ ተረጋግጧል።</b>\n\n"
+            f"👤 ስም: {u_name}\n"
+            f"📅 የገቡበት: {to_eth_date(u.get('joined_at', time.time()))}\n"
+            f"⏳ የሚያበቃው: {to_eth_date(u['expiry'])}\n\n"
+            f"☑️ - ቻናል ውስጥ አልገቡም\n"
+            f"✅ - ቻናል ውስጥ ገብተዋል\n\n"
+            f"የሁሉንም ቻናሎች ሊንኮች ከታች ይገናኛሉ 🔻"
+        )
+
+        bot.send_message(
+            target_id,
+            msg,
+            reply_markup=get_channel_status_markup(target_id)
+        )
+
+        bot.edit_message_text(
+            f"✅ ተጠቃሚ {target_id} ጸድቋል!",
+            ADMIN_ID,
+            mid
+        )
+
+    # User: Reject Payment (By Admin)
     elif call.data.startswith("reject_"):
         target_id = int(call.data.split("_")[1])
+
         markup = InlineKeyboardMarkup()
         markup.add(
-            InlineKeyboardButton("🚫 የደረሰኝ ስህተት", callback_data=f"rj_msg_{target_id}_receipt"),
-            InlineKeyboardButton("📉 ብር አነስተኛ ነው", callback_data=f"rj_msg_{target_id}_amount")
+            InlineKeyboardButton(
+                "🚫 የደረሰኝ ስህተት",
+                callback_data=f"rj_msg_{target_id}_receipt"
+            ),
+            InlineKeyboardButton(
+                "📉 ብር አነስተኛ ነው",
+                callback_data=f"rj_msg_{target_id}_amount"
+            )
         )
-        markup.add(InlineKeyboardButton("✍️ የራስህን መልዕክት ጻፍ", callback_data=f"rj_custom_{target_id}"))
-        bot.edit_message_text("ውድቅ የተደረገበትን ምክንያት ይምረጡ፦", ADMIN_ID, mid, reply_markup=markup)
+
+        markup.add(
+            InlineKeyboardButton(
+                "✍️ የራስህን መልዕክት ጻፍ",
+                callback_data=f"rj_custom_{target_id}"
+            )
+        )
+
+        bot.edit_message_text(
+            "ውድቅ የተደረገበትን ምክንያት ይምረጡ፦",
+            ADMIN_ID,
+            mid,
+            reply_markup=markup
+        )
 
     elif call.data == "refresh_service":
         bot.answer_callback_query(call.id, "መረጃው እየታደሰ ነው...")
-        handle_my_service(call.message) # መልዕክቱን እንዲያድሰው
-call.data.startswith("get_last_5_")
-          # User: View Description with Real-time Update
-          # User: View Description
+        handle_my_service(call.message)
+
+    # User: View Description
     elif call.data.startswith("view_ch_"):
         try:
             ch_id = int(call.data.split("_")[2])
+
             info = bot.get_chat(ch_id)
-            description = info.description if info.description else "ለዚህ ቻናል ምንም መግለጫ አልተጻፈም።"
-            bot.answer_callback_query(call.id, f"📝 የቻናሉ መግለጫ፦\n\n{description}", show_alert=True)
+
+            description = (
+                info.description
+                if info.description
+                else "ለዚህ ቻናል ምንም መግለጫ አልተጻፈም።"
+            )
+
+            bot.answer_callback_query(
+                call.id,
+                f"📝 የቻናሉ መግለጫ፦\n\n{description}",
+                show_alert=True
+            )
+
         except Exception as e:
-            bot.answer_callback_query(call.id, f"❌ መግለጫውን ማግኘት አልተቻለም።\nምክንያት፦ {e}", show_alert=True)
+            bot.answer_callback_query(
+                call.id,
+                f"❌ መግለጫውን ማግኘት አልተቻለም።\nምክንያት፦ {e}",
+                show_alert=True
+            )
 
-            # የፊልም ፖስተር ማምጫ (ቅደም ተከተል የተስተካከለ)
+    # የፊልም ፖስተር ማምጫ
     elif call.data.startswith("get_last_5_"):
-    ch_id = int(call.data.split("_")[3])
-    uid = call.from_user.id
-    wait_msg = bot.send_message(uid, "<b>⏳ እባክዎ ይጠብቁ... ፊልሞችን እያመጣሁ ነው</b>")
+        ch_id = int(call.data.split("_")[3])
+        uid = call.from_user.id
 
-    try:
-        ch_info = bot.get_chat(ch_id)
-        bot.send_message(uid, f"<b>🎬 ከ {ch_info.title} የተመረጡ አዳዲስ የፊልም ፖስተሮች፦</b>")
+        wait_msg = bot.send_message(
+            uid,
+            "<b>⏳ እባክዎ ይጠብቁ... ፊልሞችን እያመጣሁ ነው</b>"
+        )
 
-        temp_msg = bot.send_message(ch_id, ".")
-        last_id = temp_msg.message_id
-        bot.delete_message(ch_id, last_id)
+        try:
+            ch_info = bot.get_chat(ch_id)
 
-        photo_ids = []
+            bot.send_message(
+                uid,
+                f"<b>🎬 ከ {ch_info.title} የተመረጡ አዳዲስ የፊልም ፖስተሮች፦</b>"
+            )
 
-        for msg_id in range(last_id - 1, last_id - 51, -1):
-            if len(photo_ids) >= 5:
-                break
+            temp_msg = bot.send_message(ch_id, ".")
+            last_id = temp_msg.message_id
 
-            try:
-                test_msg = bot.forward_message(ADMIN_ID, ch_id, msg_id)
+            bot.delete_message(ch_id, last_id)
 
-                if test_msg.content_type == 'photo':
-                    photo_ids.append(msg_id)
+            photo_ids = []
 
-                bot.delete_message(ADMIN_ID, test_msg.message_id)
+            for msg_id in range(last_id - 1, last_id - 51, -1):
 
-            except:
-                continue
+                if len(photo_ids) >= 5:
+                    break
 
-        if not photo_ids:
-            bot.send_message(uid, "<b>❌ ፖስተር አልተገኘም።</b>")
+                try:
+                    test_msg = bot.forward_message(
+                        ADMIN_ID,
+                        ch_id,
+                        msg_id
+                    )
 
-        else:
-            photo_ids.reverse()
+                    if test_msg.content_type == "photo":
+                        photo_ids.append(msg_id)
 
-            for p_id in photo_ids:
-                bot.forward_message(uid, ch_id, p_id)
+                    bot.delete_message(
+                        ADMIN_ID,
+                        test_msg.message_id
+                    )
 
-    except Exception as e:
-        bot.send_message(uid, f"❌ ስህተት: {e}")
+                except Exception:
+                    continue
 
+            if not photo_ids:
+                bot.send_message(
+                    uid,
+                    "<b>❌ ፖስተር አልተገኘም።</b>"
+                )
+
+            else:
+                photo_ids.reverse()
+
+                for p_id in photo_ids:
+                    bot.forward_message(uid, ch_id, p_id)
+
+            bot.delete_message(uid, wait_msg.message_id)
+
+        except Exception as e:
+            bot.send_message(uid, f"❌ ስህተት: {e}")
 # =========================================================================
 # 8. PAYMENT & ADMIN PROCESSES
 # =========================================================================
