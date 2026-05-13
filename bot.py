@@ -184,7 +184,7 @@ def admin_panel_keyboard():
         InlineKeyboardButton("➕ ቻናል ጨምር", callback_data="adm_add_ch"),
         InlineKeyboardButton("➖ ቻናል ቀንስ", callback_data="adm_rem_ch")
     )
-    # አዲሱ በተን እዚህ አለ
+    markup.add(InlineKeyboardButton("➕ ተጠቃሚ በ manual ጨምር", callback_data="adm_add_user_manual"))
     markup.add(InlineKeyboardButton("💎 VIP አባል ጨምር", callback_data="adm_add_vip")) 
     
     markup.add(InlineKeyboardButton("🔄 የቻናል ስሞችን አድስ (Sync)", callback_data="adm_sync_names"))
@@ -505,6 +505,11 @@ def handle_all_callbacks(call):
         msg = bot.send_message(ADMIN_ID, "እባክዎ ማስወገድ የሚፈልጉትን ተጠቃሚ ID (User ID) ይላኩ፦\n(ለመለሰረዝ /cancel ይበሉ)")
         bot.register_next_step_handler(msg, process_manual_remove)
 
+   elif call.data == "adm_add_user_manual":
+        msg = bot.send_message(ADMIN_ID, "እባክዎ መመዝገብ የሚፈልጉትን ተጠቃሚ <b>ID</b> ይላኩ ወይም ከመልዕክቱ <b>Forward</b> ያድርጉልኝ፦\n\nለመሰረዝ /cancel ይበሉ።")
+        bot.register_next_step_handler(msg, process_manual_user_id)
+    
+
     elif call.data == "adm_sync_names":
         bot.answer_callback_query(call.id, "የቻናል ስሞችን የማደስ ስራ እየተሰራ ነው...")
         channels = list(channels_col.find())
@@ -757,6 +762,69 @@ def process_forward_vip(message):
     
     bot.send_message(ADMIN_ID, f"✅ ተገኝቷል፦ <b>{target_name}</b> (ID: <code>{target_id}</code>)\n\nለዚህ ተጠቃሚ የሚሰጠውን ፓኬጅ ይምረጡ፦", reply_markup=markup)
 
+def process_manual_user_id(message):
+    if message.text == "/cancel":
+        bot.send_message(ADMIN_ID, "ሂደቱ ተሰርዟል።", reply_markup=admin_panel_keyboard())
+        return
+
+    # ID ከመልዕክቱ ወይም ከፎርዋርድ መውሰድ
+    target_id = None
+    if message.forward_from:
+        target_id = message.forward_from.id
+    elif message.text and message.text.isdigit():
+        target_id = int(message.text)
+
+    if not target_id:
+        msg = bot.send_message(ADMIN_ID, "❌ ስህተት! እባክዎ ትክክለኛ ID ይላኩ ወይም መልዕክት Forward ያድርጉ።")
+        bot.register_next_step_handler(msg, process_manual_user_id)
+        return
+
+    msg = bot.send_message(ADMIN_ID, f"ተጠቃሚ <code>{target_id}</code> ተለይቷል።\n\nለስንት ቀን አገልግሎት እንዲያገኝ ይፈልጋሉ? (ከ 1 እስከ 365 ቁጥር ብቻ ይጻፉ)፦")
+    bot.register_next_step_handler(msg, lambda m: process_manual_user_days(m, target_id))
+
+def process_manual_user_days(message, target_id):
+    if message.text == "/cancel":
+        bot.send_message(ADMIN_ID, "ሂደቱ ተሰርዟል።", reply_markup=admin_panel_keyboard())
+        return
+
+    if not message.text or not message.text.isdigit():
+        msg = bot.send_message(ADMIN_ID, "❌ ስህተት! እባክዎ የቀናትን ቁጥር (ለምሳሌ 30) ብቻ ይላኩ።")
+        bot.register_next_step_handler(msg, lambda m: process_manual_user_days(m, target_id))
+        return
+
+    days = int(message.text)
+    if days < 1 or days > 365:
+        msg = bot.send_message(ADMIN_ID, "❌ ስህተት! ቀናት ከ 1 እስከ 365 መሆን አለባቸው።")
+        bot.register_next_step_handler(msg, lambda m: process_manual_user_days(m, target_id))
+        return
+
+    # ወደ ዳታቤዝ ማስገባት
+    expiry_ts = (datetime.now() + timedelta(days=days)).timestamp()
+    users_col.update_one(
+        {"user_id": target_id},
+        {"$set": {
+            "active": True, 
+            "expiry": expiry_ts, 
+            "plan": "manual", 
+            "joined_at": time.time()
+        }},
+        upsert=True
+    )
+
+    bot.send_message(ADMIN_ID, f"✅ ተጠቃሚ <code>{target_id}</code> ለ {days} ቀናት በተሳካ ሁኔታ ተመዝግቧል!", reply_markup=admin_panel_keyboard())
+    
+    # ለተጠቃሚው ማሳወቅ
+    try:
+        msg_to_user = (
+            f"<b>🎉 እንኳን ደስ አለዎት!</b>\n\n"
+            f"አድሚኑ የ {days} ቀናት VIP አገልግሎት በነጻ (Manual) ሰጥቶዎታል።\n"
+            f"አሁኑኑ መጠቀም መጀመር ይችላሉ።"
+        )
+        bot.send_message(target_id, msg_to_user, reply_markup=get_channel_status_markup(target_id))
+    except:
+        pass
+
+    
 # =========================================================================
 # 9. RUN BOT
 # =========================================================================
