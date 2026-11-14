@@ -127,8 +127,10 @@ def get_channel_status_markup(user_id):
 # This handler records new photo posts so the latest five can be forwarded.
 @bot.channel_post_handler(content_types=["photo"])
 def track_channel_photo(message):
+    """Save IDs of new channel photo posts; Bot API cannot read old channel history."""
     try:
-        if channels_col.find_one({"id": message.chat.id}):
+        channel = channels_col.find_one({"id": message.chat.id})
+        if channel:
             channels_col.update_one(
                 {"id": message.chat.id},
                 {"$push": {
@@ -137,6 +139,10 @@ def track_channel_photo(message):
                         "$slice": -50
                     }
                 }}
+            )
+            logger.info(
+                "Saved photo post %s from channel %s",
+                message.message_id, message.chat.id
             )
     except Exception:
         logger.exception("Could not save channel photo post")
@@ -894,42 +900,49 @@ def handle_all_callbacks(call):
     # User: show latest five tracked channel posters with progress animation
     elif call.data.startswith("get_last_5_"):
         try:
+            # callback_data format: get_last_5_<channel_id>
             ch_id = int(call.data.rsplit("_", 1)[1])
-        except ValueError:
-            bot.answer_callback_query(call.id, "የቻናሉ ID ትክክል አይደለም።", show_alert=True)
+        except (ValueError, IndexError):
+            bot.answer_callback_query(
+                call.id, "የቻናሉ ID ትክክል አይደለም።", show_alert=True
+            )
             return
 
         bot.answer_callback_query(call.id)
         wait_msg = bot.send_message(
             uid,
-            "<b>🎬 Gett VIP — የፊልም ፖስተሮች</b>\n\n"
-            "⏳ እባክዎ ይጠብቁ...\n\n"
-            "⬜⬜⬜⬜⬜⬜⬜⬜⬜⬜\n<b>0%</b>"
+            "<b>🎬 Gett VIP — የፊልም ፖስተሮች</b>\\n\\n"
+            "⏳ እባክዎ ይጠብቁ...\\n\\n"
+            "▱▱▱▱▱▱▱▱▱▱\\n<b>0%</b>"
         )
 
         try:
             ch_info = bot.get_chat(ch_id)
 
-            # Animate 10%, 20%, ... 100%.
+            # Progress animation. This is only a visual progress indicator.
             for percent in range(10, 101, 10):
                 filled = percent // 10
-                bar = "🟩" * filled + "⬜" * (10 - filled)
+                bar = "▰" * filled + "▱" * (10 - filled)
                 bot.edit_message_text(
-                    f"<b>🎬 {ch_info.title}</b>\n\n"
-                    "⏳ ፖስተሮችን እያዘጋጀሁ ነው...\n\n"
-                    f"{bar}\n<b>{percent}%</b>",
+                    f"<b>🎬 {ch_info.title}</b>\\n\\n"
+                    "⏳ ፖስተሮችን እያዘጋጀሁ ነው...\\n\\n"
+                    f"{bar}\\n<b>{percent}%</b>",
                     uid,
                     wait_msg.message_id
                 )
                 time.sleep(0.2)
 
             channel_doc = channels_col.find_one({"id": ch_id}) or {}
+            # Saved by track_channel_photo; newest five, sent oldest-to-newest.
             photo_ids = channel_doc.get("photo_posts", [])[-5:]
 
             if not photo_ids:
                 bot.edit_message_text(
-                    "<b>❌ እስካሁን በዚህ ቻናል ምንም አዲስ ፖስተር አልተመዘገበም።</b>\n\n"
-                    "ቦቱን በቻናሉ ላይ Admin አድርጉት፤ ከዚያ በኋላ የሚለጠፉ ፎቶዎች ይመዘገባሉ።",
+                    "<b>❌ እስካሁን በዚህ ቻናል ምንም አዲስ ፖስተር አልተመዘገበም።</b>\\n\\n"
+                    "ቦቱን በቻናሉ ላይ Admin አድርጉት እና ቻናሉ በቦቱ ውስጥ መመዝገቡን ያረጋግጡ። "
+                    "ከዚያ በኋላ አዲስ የሚለጠፉ ፎቶዎች ይመዘገባሉ።\\n\\n"
+                    "⚠️ Telegram Bot API ቦቱ ከመግባቱ በፊት የተለጠፉ የቻናል መልዕክቶችን "
+                    "በቀጥታ ማምጣት አይችልም።",
                     uid,
                     wait_msg.message_id
                 )
@@ -948,27 +961,30 @@ def handle_all_callbacks(call):
                     sent_count += 1
                 except Exception as e:
                     logger.warning(
-                        "Could not forward channel post %s from %s: %s",
+                        "Could not forward channel photo post %s from %s: %s",
                         message_id, ch_id, e
                     )
 
             if sent_count:
                 bot.send_message(
                     uid,
-                    "<b>✅ ሁሉንም ፊልሞች ለማግኘት VIP አባል ይሁኑ!</b>"
+                    f"<b>✅ {sent_count} ፖስተር(ዎች) ተልከዋል!</b>\\n"
+                    "ሁሉንም ፊልሞች ለማግኘት VIP አባል ይሁኑ!"
                 )
             else:
-                bot.send_message(
-                    uid,
+                bot.edit_message_text(
                     "❌ ፖስተሮቹን መላክ አልተቻለም። "
-                    "ቦቱ በቻናሉ ላይ Admin መሆኑን ያረጋግጡ።"
+                    "ቦቱ በቻናሉ ላይ Admin መሆኑን፣ ፖስቶቹ እንዳልተሰረዙ "
+                    "እና የቻናሉ Content Protection እንዳልተከለከለ ያረጋግጡ።",
+                    uid,
+                    wait_msg.message_id
                 )
 
-        except Exception as e:
-            logger.exception("Poster retrieval error")
+        except Exception:
+            logger.exception("Poster retrieval error for channel %s", ch_id)
             try:
                 bot.edit_message_text(
-                    "❌ ፊልሞቹን ማግኘት አልተቻለም።",
+                    "❌ ፊልሞቹን ማግኘት አልተቻለም። እባክዎ ቦቱ Admin መሆኑን ያረጋግጡ።",
                     uid,
                     wait_msg.message_id
                 )
