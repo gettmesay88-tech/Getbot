@@ -231,17 +231,17 @@ def handle_my_service(message):
         bot.send_message(uid, "<b>ሰላም፣ እስካሁን የET Movie zone አባል አልሆኑም ወይም ጊዜዎ አልቋል።</b>\n\nአባል ለመሆን '💎 VIP ለመመዝገብ' የሚለውን ይጫኑ።")
         return
     
-    expiry_str = to_eth_date(user_data["expiry"])
-    plan_name = PLANS.get(user_data.get("plan"), {"name": "ያልታወቀ"})["name"]
-    
-    status_text = (
-        f"<b>👤 ስም፦</b> {message.from_user.first_name}\n"
-        f"<b>💎 የአባልነት አይነት፦</b> {plan_name}\n"
-        f"<b>⏳ የሚያበቃው፦</b> {expiry_str}\n\n"
-        f"<b>ሁኔታዎች፦</b>\n✅ - ቻናሉ ውስጥ ገብተዋል\n☑️ - ቻናሉ ውስጥ አልገቡም\n\n"
-        f"ሊንኮቹን በመጫን ይቀላቀሉ 👇"
+    # ← አዲስ: አጭር መልዕክት + ቁልፍ (ሙሉው መልዕክት ቁልፉ ሲነካ ይመጣል)
+    short_text = (
+        "<b>🎉 የET Movie zone አባል ስለሆኑ እናመሰግናለን!</b>\n\n"
+        f"📅 <b>የገቡበት፦</b> {to_eth_date(user_data.get('joined_at'))}\n"
+        f"⏳ <b>የሚያበቃው፦</b> {to_eth_date(user_data['expiry'])}\n\n"
+        "ET Movie ቻናሎችን ለማግኘት ከታች ያለውን ቁልፍ ይጫኑ 👇"
     )
-    bot.send_message(uid, status_text, reply_markup=get_channel_status_markup(uid), protect_content=is_restriction_on())
+    short_markup = InlineKeyboardMarkup().add(
+        InlineKeyboardButton("📺 ET Movie ቻናሎችን ለማግኘት ይጫኑ", callback_data="my_service_full")
+    )
+    bot.send_message(uid, short_text, reply_markup=short_markup, protect_content=is_restriction_on())
 
 @bot.message_handler(func=lambda m: m.text == "💎 VIP ለመመዝገብ")
 def handle_registration(message):
@@ -275,8 +275,8 @@ def handle_new_movies(message):
         bot.send_message(message.chat.id, "<b>❌ ምንም ቻናል አልተገኘም።</b>")
         return
 
-    # 12 ቻናሎችን መምረጥ
-    selected_channels = random.sample(all_channels, min(len(all_channels), 12))
+    # የመጀመሪያዎቹን 20 ቻናሎች መምረጥ እና ቦታቸውን መቀያየር
+    selected_channels = random.sample(all_channels[:20], len(all_channels[:20]))  # ← አዲስ
     
     markup = InlineKeyboardMarkup(row_width=3)
     buttons = []
@@ -326,6 +326,26 @@ def handle_all_callbacks(call):
         instruction = f"{acc_info}\n\n<b>📸 ክፍያውን ከፈጸሙ በኋላ የደረሰኙን ፎቶ (Screenshot) እዚህ ይላኩ።</b>\n\nለመሰረዝ /cancel ይበሉ።"
         bot.edit_message_text(instruction, uid, mid)
         bot.register_next_step_handler(call.message, get_payment_screenshot)
+
+    # ← አዲስ: ሙሉ "የእኔ አገልግሎት" መልዕክት (ቁልፉ ሲነካ)
+    elif call.data == "my_service_full":
+        user_data = users_col.find_one({"user_id": uid})
+        if not user_data or not user_data.get("active"):
+            bot.answer_callback_query(call.id, "የአገልግሎት ጊዜዎ አልቋል ወይም አባል አይደሉም።", show_alert=True)
+            return
+        bot.answer_callback_query(call.id)
+
+        expiry_str = to_eth_date(user_data["expiry"])
+        plan_name = PLANS.get(user_data.get("plan"), {"name": "ያልታወቀ"})["name"]
+
+        status_text = (
+            f"<b>👤 ስም፦</b> {call.from_user.first_name}\n"
+            f"<b>💎 የአባልነት አይነት፦</b> {plan_name}\n"
+            f"<b>⏳ የሚያበቃው፦</b> {expiry_str}\n\n"
+            f"<b>ሁኔታዎች፦</b>\n✅ - ቻናሉ ውስጥ ገብተዋል\n☑️ - ቻናሉ ውስጥ አልገቡም\n\n"
+            f"ሊንኮቹን በመጫን ይቀላቀሉ 👇"
+        )
+        bot.send_message(uid, status_text, reply_markup=get_channel_status_markup(uid), protect_content=is_restriction_on())
 
     # Admin: List Users
     elif call.data == "adm_users" or call.data == "adm_list":
@@ -462,18 +482,23 @@ def handle_all_callbacks(call):
         # መረጃውን ከዳታቤዝ እናምጣ
         u = users_col.find_one({"user_id": target_id})
         
-        # ያዘዝከኝ መልዕክት (ያለ ምንም ለውጥ)
-        msg = (
+        # የተጠቃሚውን ስም ከቴሌግራም ማምጣት
+        try:
+            target_name = bot.get_chat(target_id).first_name
+        except Exception:
+            target_name = ""
+
+        # "የእኔ አገልግሎት" ሲጫን የሚመጣው ዓይነት መልዕክት
+        status_text = (
             f"<b>✅ እንኳን ደስ አለዎት! ክፍያዎ ተረጋግጧል።</b>\n\n"
-            f"👤 ስም: {call.from_user.first_name}\n" 
-            f"📅 የገቡበት: {to_eth_date(u.get('joined_at', time.time()))}\n" 
-            f"⏳ የሚያበቃው {to_eth_date(u['expiry'])}\n\n" 
-            f"☑️ - ቻናል ውስጥ አልገቡም\n"
-            f"✅ - ቻናል ውስጥ ገብተዋል\n\n" 
-            f"የሁሉንም ቻናሎች ሊንኮች ከታች ይገናኛሉ🔻"
+            f"<b>👤 ስም፦</b> {target_name}\n"
+            f"<b>💎 የአባልነት አይነት፦</b> {PLANS[plan_id]['name']}\n"
+            f"<b>⏳ የሚያበቃው፦</b> {to_eth_date(u['expiry'])}\n\n"
+            f"<b>ሁኔታዎች፦</b>\n✅ - ቻናሉ ውስጥ ገብተዋል\n☑️ - ቻናሉ ውስጥ አልገቡም\n\n"
+            f"ሊንኮቹን በመጫን ይቀላቀሉ 👇"
         )
         
-        bot.send_message(target_id, msg, reply_markup=get_channel_status_markup(target_id))
+        bot.send_message(target_id, status_text, reply_markup=get_channel_status_markup(target_id), protect_content=is_restriction_on())
         bot.edit_message_text(f"✅ ተጠቃሚ {target_id} ጸድቋል!", ADMIN_ID, mid)
 
     # User: Reject Payment (By Admin)
