@@ -1062,9 +1062,17 @@ def evaluate_receipt(item, plan_id):
     if not (item.get("verified") is True or item.get("status") == "success"):
         return False, "ክፍያው በባንኩ አልተረጋገጠም", None, ref
 
-    try:
-        amount = float(str(item.get("amount")).replace(",", ""))
-    except Exception:
+    # ← የተስተካከለ: የብር መጠኑን ከተለያዩ መስኮች እና ከጽሑፍ ጋር ከተቀላቀለ ቁጥርም ማንበብ
+    amount = None
+    for k in ("amount", "amountValue", "settledAmountValue", "amountRaw", "settledAmount"):
+        v = item.get(k)
+        if v in (None, ""):
+            continue
+        m = re.search(r"\d[\d,]*\.?\d*", str(v))
+        if m:
+            amount = float(m.group().replace(",", ""))
+            break
+    if amount is None:
         return False, "የብር መጠኑ አልተነበበም", None, ref
     price = PLANS[plan_id]["price"]
     if amount < price:
