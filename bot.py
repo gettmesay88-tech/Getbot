@@ -5,6 +5,7 @@ import threading
 import logging
 import html
 import re
+import requests
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from flask import Flask
@@ -43,6 +44,14 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_ID = int(os.getenv("ADMIN_ID"))
 MONGO_URI = os.getenv("MONGO_URI")
 
+# ← አዲስ: ደረሰኝ በራስ-ሰር ማረጋገጫ (verify.et)
+VERIFY_ET_API_KEY = os.getenv("VERIFY_ET_API_KEY")  # ከሌለ ሁሉም በአድሚን እጅ ይጸድቃል
+VERIFY_ET_URL = "https://verify.et"
+AUTO_APPROVE = True            # False ካደረግህ ሁሉም በአድሚን እጅ ይጸድቃል
+MAX_RECEIPT_AGE_HOURS = 48     # ከዚህ የቆየ ደረሰኝ በራስ-ሰር አይጸድቅም
+MAX_BAD_RECEIPTS = 3           # ← አዲስ: ይህን ያህል የተሳሳተ ደረሰኝ ከላከ ክፍያ መላክ ይዘጋል
+ADMIN_CONTACT = "@gygett"       # ← አዲስ: ለተዘጋ ተጠቃሚ የሚታይ የአድሚን አድራሻ
+
 # Initialize Bot
 bot = telebot.TeleBot(BOT_TOKEN, parse_mode="HTML")
 
@@ -53,6 +62,7 @@ try:
     users_col = db["users"]
     channels_col = db["channels"]
     settings_col = db["settings"]
+    receipts_col = db["receipts"]  # ← አዲስ: ጥቅም ላይ የዋሉ ደረሰኞች
     logger.info("Connected to MongoDB successfully!")
 except Exception as e:
     logger.error(f"MongoDB Connection Error: {e}")
@@ -124,6 +134,9 @@ TXT = {
         "expired": "<b>⚠️ የአገልግሎት ጊዜዎ አብቅቷል!</b>\n\nከVIP ቻናሎች በራስ-ሰር ተወግደዋል። አገልግሎቱን ለመቀጠል እባክዎ ደግመው ይክፈሉ እና ደረሰኝ ይላኩ።",
         "help_fail": "❌ እገዛውን ማምጣት አልተቻለም። እባክዎ ቆይተው ደግመው ይሞክሩ።",
         "lang_changed": "✅ ቋንቋ ወደ አማርኛ ተቀይሯል",
+        "blocked": "<b>⛔ በተደጋጋሚ የተሳሳተ ደረሰኝ ስለላኩ ክፍያ መላክ ለጊዜው ተዘግቷል።</b>\n\nእባክዎ ጉዳዩን ለማስረዳት አድሚኑን ያነጋግሩ።",
+        "last_warning": "⚠️ ቀጣዩ የተሳሳተ ሙከራ ክፍያ መላክን ይዘጋል።",
+        "unblocked": "✅ ክፍያ መላክ ተፈቅዶልዎታል። ደግመው መሞከር ይችላሉ።",
     },
     "en": {
         "welcome": "<b>Hello {name}, welcome to the ET Movie zone Bot!</b>\n\nThis bot helps you join our VIP channels with a paid subscription and manage your service. To begin, choose one of the options below.",
@@ -172,6 +185,9 @@ TXT = {
         "expired": "<b>⚠️ Your subscription has expired!</b>\n\nYou have been automatically removed from the VIP channels. To continue, please pay again and send the receipt.",
         "help_fail": "❌ Could not load the help content. Please try again later.",
         "lang_changed": "✅ Language changed to English",
+        "blocked": "<b>⛔ Sending payments is temporarily blocked because you sent invalid receipts several times.</b>\n\nPlease contact the admin to explain.",
+        "last_warning": "⚠️ Your next invalid attempt will block you from sending payments.",
+        "unblocked": "✅ You can send payments again. You may try again.",
     },
 }
 
@@ -424,6 +440,9 @@ def handle_my_service(message):
 @bot.message_handler(func=lambda m: m.text in BTN_REGISTER)
 def handle_registration(message):
     lang = lang_of(message.from_user.id)
+    if is_blocked(message.from_user.id):  # ← አዲስ
+        bot.send_message(message.chat.id, blocked_text(lang))
+        return
     markup = InlineKeyboardMarkup()
     for key, val in PLANS.items():
         markup.add(InlineKeyboardButton(f"💳 {plan_name(key, lang)}", callback_data=f"buy_{key}"))
@@ -503,6 +522,10 @@ def handle_all_callbacks(call):
     # User: Plan Selection
     if call.data.startswith("buy_"):
         lang = lang_of(uid)
+        if is_blocked(uid):  # ← አዲስ
+            bot.answer_callback_query(call.id)
+            bot.send_message(uid, blocked_text(lang))
+            return
         plan_id = call.data.split("_")[1]
         users_col.update_one({"user_id": uid}, {"$set": {"pending_plan": plan_id}}, upsert=True)
         
@@ -518,7 +541,12 @@ def handle_all_callbacks(call):
     # User: Payment Method
     elif call.data.startswith("pay_"):
         lang = lang_of(uid)
+        if is_blocked(uid):  # ← አዲስ
+            bot.answer_callback_query(call.id)
+            bot.send_message(uid, blocked_text(lang))
+            return
         method = call.data.split("_")[1]
+        users_col.update_one({"user_id": uid}, {"$set": {"pending_bank": method}}, upsert=True)  # ← አዲስ
         if method == "cbe":
             acc_info = t(lang, "acc_cbe")
         elif method == "aby":
@@ -569,6 +597,7 @@ def handle_all_callbacks(call):
     elif call.data.startswith("rj_msg_"):
         _, _, target_id, reason = call.data.split("_")
         target_id = int(target_id)
+        users_col.update_one({"user_id": target_id}, {"$unset": {"pending_sub": ""}})  # ← አዲስ
         tl = lang_of(target_id)
         if reason == "receipt":
             reason_text = t(tl, "rej_receipt")
@@ -609,6 +638,19 @@ def handle_all_callbacks(call):
             bot.register_next_step_handler(msg, lambda m: process_add_vip_duration(m, target_id))
         else:
             ask_vip_start(target_id, plan_id, PLANS[plan_id]["days"] * 86400, PLANS[plan_id]["name"], PLANS[plan_id]["name_en"])
+
+    # ← አዲስ: የተዘጋ ተጠቃሚን መፍቀድ
+    elif call.data.startswith("adm_unban_"):
+        if uid != ADMIN_ID:
+            return
+        target_id = int(call.data.split("_")[2])
+        users_col.update_one({"user_id": target_id}, {"$unset": {"receipt_blocked": "", "bad_receipts": "", "bad_log": ""}})
+        bot.answer_callback_query(call.id, "ተፈቅዷል")
+        bot.edit_message_text(f"✅ ተጠቃሚ {target_id} ክፍያ መላክ ተፈቅዶለታል።", ADMIN_ID, mid)
+        try:
+            bot.send_message(target_id, t(lang_of(target_id), "unblocked"))
+        except Exception:
+            pass
 
     # Admin: List Users
     elif call.data == "adm_users" or call.data == "adm_list":
@@ -731,36 +773,8 @@ def handle_all_callbacks(call):
     elif call.data.startswith("approve_"):
         _, target_id, plan_id = call.data.split("_")
         target_id = int(target_id)
-        
-        days = PLANS[plan_id]["days"]
-        expiry_ts = (datetime.now() + timedelta(days=days)).timestamp()
-        
-        # የዳታቤዝ ማሻሻያ
-        users_col.update_one(
-            {"user_id": target_id},
-            {"$set": {"active": True, "expiry": expiry_ts, "plan": plan_id, "joined_at": time.time()}},
-            upsert=True
-        )
-        
-        # መረጃውን ከዳታቤዝ እናምጣ
-        u = users_col.find_one({"user_id": target_id})
-        tl = "en" if u.get("lang") == "en" else "am"
 
-        # የተጠቃሚውን ስም ከቴሌግራም ማምጣት
-        try:
-            target_name = bot.get_chat(target_id).first_name
-        except Exception:
-            target_name = ""
-
-        # "የእኔ አገልግሎት" ሲጫን የሚመጣው ዓይነት መልዕክት
-        status_text = t(tl, "approved_head") + t(
-            tl, "my_full",
-            name=esc(target_name),
-            plan=plan_name(plan_id, tl),
-            expiry=to_eth_date(u['expiry'], tl),
-        )
-        
-        bot.send_message(target_id, status_text, reply_markup=get_channel_status_markup(target_id), protect_content=is_restriction_on())
+        approve_user(target_id, plan_id)  # ← አዲስ: ተመሳሳይ ሎጂክ ለራስ-ሰር ማጽደቅም ይጠቀማል
         bot.edit_message_text(f"✅ ተጠቃሚ {target_id} ጸድቋል!", ADMIN_ID, mid)
 
     # User: Reject Payment (By Admin)
@@ -879,14 +893,270 @@ def handle_all_callbacks(call):
 # =========================================================================
 # 8. PAYMENT & ADMIN PROCESSES
 # =========================================================================
+# =========================================================================
+# ← አዲስ: ክፍያ ማጽደቅ እና ደረሰኝ በራስ-ሰር ማረጋገጥ
+# =========================================================================
+# =========================================================================
+# ← አዲስ: የተሳሳተ ደረሰኝ ጥበቃ (3 ጊዜ ከተሳሳተ ክፍያ መላክ ይዘጋል)
+# =========================================================================
+def is_blocked(uid):
+    return bool(users_col.find_one({"user_id": uid, "receipt_blocked": True}))
+
+
+def blocked_text(lang):
+    text = t(lang, "blocked")
+    return f"{text}\n\n📩 {ADMIN_CONTACT}" if ADMIN_CONTACT else text
+
+
+def notify_admin_blocked(uid, u):
+    """አድሚኑ ስለተዘጋው ተጠቃሚ መረጃ ያገኛል (ከ 'ፍቀድ' ቁልፍ ጋር)"""
+    try:
+        name = bot.get_chat(uid).first_name
+    except Exception:
+        name = str(uid)
+    eat = timezone(timedelta(hours=3))
+    lines = []
+    for i, e in enumerate(u.get("bad_log", []), start=1):
+        at = datetime.fromtimestamp(e["at"], eat)
+        lines.append(f"{i}. {to_eth_date(e['at'])} {at.strftime('%H:%M')} — {e['reason']}")
+    username = f"\n🔗 @{u['username']}" if u.get("username") else ""
+    text = (
+        f"🚫 <b>ተጠቃሚ ክፍያ መላክ ተዘግቶበታል</b> ({MAX_BAD_RECEIPTS} የተሳሳቱ ሙከራዎች)\n\n"
+        f"👤 <a href='tg://user?id={uid}'>{esc(name)}</a>{username}\n"
+        f"🆔 <code>{uid}</code>\n\n"
+        "📋 <b>ሙከራዎች፦</b>\n" + "\n".join(lines)
+    )
+    markup = InlineKeyboardMarkup().add(InlineKeyboardButton("✅ ፍቀድ (Unban)", callback_data=f"adm_unban_{uid}"))
+    bot.send_message(ADMIN_ID, text, reply_markup=markup)
+
+
+def register_bad_receipt(uid, reason):
+    """የተሳሳተ ደረሰኝ ሙከራ መመዝገብ። ቁጥሩ ሲሞላ ተጠቃሚው ይዘጋል፣ ተጠቃሚውም አድሚኑም ይነገራቸዋል → (ቁጥር, ተዘግቷል?)"""
+    users_col.update_one(
+        {"user_id": uid},
+        {"$inc": {"bad_receipts": 1}, "$push": {"bad_log": {"at": time.time(), "reason": reason}}},
+        upsert=True
+    )
+    u = users_col.find_one({"user_id": uid}) or {}
+    count = u.get("bad_receipts", 0)
+    if u.get("receipt_blocked"):
+        return count, True
+    if count >= MAX_BAD_RECEIPTS:
+        users_col.update_one({"user_id": uid}, {"$set": {"receipt_blocked": True}})
+        lang = "en" if u.get("lang") == "en" else "am"
+        try:
+            bot.send_message(uid, blocked_text(lang), reply_markup=main_menu_keyboard(lang))
+        except Exception:
+            pass
+        try:
+            notify_admin_blocked(uid, u)
+        except Exception as e:
+            logger.error(f"Admin block notice error: {e}")
+        return count, True
+    return count, False
+
+
+def approve_user(target_id, plan_id):
+    """ተጠቃሚውን VIP ማድረግ እና የማረጋገጫ መልዕክት + ሊንኮች መላክ (አድሚን ሲያጸድቅም ራስ-ሰርም)"""
+    days = PLANS[plan_id]["days"]
+    expiry_ts = (datetime.now() + timedelta(days=days)).timestamp()
+
+    # የዳታቤዝ ማሻሻያ
+    users_col.update_one(
+        {"user_id": target_id},
+        {"$set": {"active": True, "expiry": expiry_ts, "plan": plan_id, "joined_at": time.time()},
+         "$unset": {"pending_sub": "", "bad_receipts": "", "bad_log": ""}},
+        upsert=True
+    )
+
+    # መረጃውን ከዳታቤዝ እናምጣ
+    u = users_col.find_one({"user_id": target_id})
+    tl = "en" if u.get("lang") == "en" else "am"
+
+    # የተጠቃሚውን ስም ከቴሌግራም ማምጣት
+    try:
+        target_name = bot.get_chat(target_id).first_name
+    except Exception:
+        target_name = ""
+
+    # "የእኔ አገልግሎት" ሲጫን የሚመጣው ዓይነት መልዕክት
+    status_text = t(tl, "approved_head") + t(
+        tl, "my_full",
+        name=esc(target_name),
+        plan=plan_name(plan_id, tl),
+        expiry=to_eth_date(u['expiry'], tl),
+    )
+    bot.send_message(target_id, status_text, reply_markup=get_channel_status_markup(target_id), protect_content=is_restriction_on())
+    return u
+
+
+# ተጠቃሚው የመረጠው ባንክ → verify.et ባንክ እና የአንተ መቀበያ አካውንት
+BANK_INFO = {
+    "cbe": {"verify_bank": "cbe", "account": "1000355140206"},
+    "aby": {"verify_bank": "boa", "account": "167829104"},
+    "tele": {"verify_bank": "telebirr", "account": "0965979124"},
+}
+
+VERIFY_ERR_TEXT = {
+    "IMAGE_UNREADABLE": "ፎቶው እንደ ደረሰኝ ሊነበብ አልቻለም",
+    "IMAGE_EXTRACTION_INCOMPLETE": "ከፎቶው በቂ መረጃ ማውጣት አልተቻለም",
+    "INSUFFICIENT_IMAGE_CREDITS": "⚠️ የverify.et ምስል ክሬዲት አልቋል — ይሙሉ",
+    "INSUFFICIENT_CREDITS": "⚠️ የverify.et ክሬዲት አልቋል — ይሙሉ",
+    "IMAGE_PROCESSING_DISABLED": "⚠️ በverify.et ላይ Image Processing አልበራም",
+    "TIMEOUT": "የማረጋገጫው ጊዜ አልፏል",
+}
+
+
+def _pick_item(body):
+    d = body.get("data")
+    if isinstance(d, list):
+        d = d[0] if d else {}
+    if not isinstance(d, dict):
+        d = {}
+    return {**(body.get("verification") or {}), **d}
+
+
+def verify_receipt_photo(photo_msg, bank_key, key):
+    """ፎቶውን ወደ verify.et ልኮ ውጤቱን ይመልሳል → (ውጤት, የስህተት ኮድ)"""
+    info = BANK_INFO.get(bank_key, {})
+    file_info = bot.get_file(photo_msg.photo[-1].file_id)
+    img = bot.download_file(file_info.file_path)
+
+    headers = {"x-api-key": VERIFY_ET_API_KEY, "Idempotency-Key": key}
+    form = {}
+    if info.get("verify_bank"):
+        form["bank"] = info["verify_bank"]
+    if info.get("account"):
+        form["settlementAccount"] = info["account"]
+
+    r = requests.post(
+        f"{VERIFY_ET_URL}/api/verify", params={"waitMs": 8000}, headers=headers,
+        data=form, files={"image": ("receipt.jpg", img, "image/jpeg")}, timeout=40
+    )
+    try:
+        body = r.json()
+    except Exception:
+        body = {}
+    if r.status_code not in (200, 202):
+        return None, ((body.get("error") or {}).get("code") or f"HTTP {r.status_code}")
+
+    item = _pick_item(body)
+    request_id = body.get("requestId")
+    if r.status_code == 202 and request_id:
+        for _ in range(30):  # እስከ ~60 ሰከንድ
+            time.sleep(2)
+            try:
+                pr = requests.get(f"{VERIFY_ET_URL}/api/verify/{request_id}", headers={"x-api-key": VERIFY_ET_API_KEY}, timeout=20)
+                pitem = _pick_item(pr.json())
+            except Exception:
+                continue
+            if pitem.get("processingStatus") in ("completed", "failed"):
+                return {**item, **pitem}, None
+        return None, "TIMEOUT"
+    return item, None
+
+
+def evaluate_receipt(item, plan_id):
+    """ደረሰኙ በራስ-ሰር ለማጽደቅ ብቁ ነው? → (ok, ምክንያት, ብር, reference)"""
+    ref = item.get("referenceNumber") or item.get("receiptNumber")
+    if not (item.get("verified") is True or item.get("status") == "success"):
+        return False, "ክፍያው በባንኩ አልተረጋገጠም", None, ref
+
+    try:
+        amount = float(str(item.get("amount")).replace(",", ""))
+    except Exception:
+        return False, "የብር መጠኑ አልተነበበም", None, ref
+    price = PLANS[plan_id]["price"]
+    if amount < price:
+        return False, f"ብር አነስተኛ ነው ({amount:g} ብር፣ ጥቅሉ {price} ብር)", amount, ref
+    if item.get("currency") not in (None, "", "ETB"):
+        return False, f"ገንዘቡ ብር አይደለም ({item.get('currency')})", amount, ref
+
+    match = item.get("settlementAccountMatch")
+    if not (isinstance(match, dict) and match.get("matched") is True):
+        return False, "ክፍያው ወደ አካውንትህ እንደገባ አልተረጋገጠም (ተቀባዩ አልተመሳሰለም)", amount, ref
+
+    if not ref:
+        return False, "የደረሰኙ ቁጥር አልተነበበም", amount, ref
+    if receipts_col.find_one({"ref": ref}):
+        return False, "ይህ ደረሰኝ ከዚህ በፊት ጥቅም ላይ ውሏል", amount, ref
+
+    try:
+        ts = datetime.fromisoformat(str(item.get("timestamp")).replace("Z", "+00:00"))
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=timezone.utc)
+        age_h = (datetime.now(timezone.utc) - ts).total_seconds() / 3600
+    except Exception:
+        return False, "የክፍያው ቀን አልተነበበም", amount, ref
+    if age_h > MAX_RECEIPT_AGE_HOURS:
+        return False, f"ደረሰኙ የቆየ ነው ({int(age_h)} ሰዓት)", amount, ref
+
+    return True, "", amount, ref
+
+
+def auto_verify_and_approve(uid, photo_msg, plan_id, bank_key, key, admin_msg_id, approve_markup):
+    """ዳራ ላይ ይሠራል፤ ካልተረጋገጠ አድሚኑ እንደ ቀድሞው በእጅ ያጸድቃል"""
+    ok, reason, amount, ref = False, "", None, None
+    not_receipt = False  # ← አዲስ
+    try:
+        item, err = verify_receipt_photo(photo_msg, bank_key, key)
+        if err:
+            reason = VERIFY_ERR_TEXT.get(str(err), f"verify.et ስህተት፦ {err}")
+            not_receipt = str(err) in ("IMAGE_UNREADABLE", "IMAGE_EXTRACTION_INCOMPLETE")  # ← አዲስ
+        else:
+            ok, reason, amount, ref = evaluate_receipt(item, plan_id)
+    except Exception as e:
+        logger.error(f"Auto verify error: {e}")
+        reason = f"ያልታሰበ ስህተት፦ {e}"
+
+    try:
+        if ok:
+            # አድሚኑ በእጅ አጽድቆ/ውድቅ አድርጎ ከሆነ ድጋሚ አይጸድቅም
+            u = users_col.find_one({"user_id": uid}) or {}
+            if u.get("pending_sub") != key:
+                return
+            approve_user(uid, plan_id)
+            receipts_col.insert_one({"ref": ref, "user_id": uid, "plan": plan_id, "amount": amount, "at": time.time()})
+            bot.edit_message_text(
+                f"✅ <b>በራስ-ሰር ተረጋግጦ ጸድቋል</b>\n🆔 {uid}\n💰 {amount:g} ብር\n🧾 {ref}",
+                ADMIN_ID, admin_msg_id
+            )
+        else:
+            bot.edit_message_text(
+                f"ያረጋግጡ፦\n⚠️ <b>በራስ-ሰር አልተረጋገጠም፦</b> {reason}",
+                ADMIN_ID, admin_msg_id, reply_markup=approve_markup
+            )
+    except Exception as e:
+        logger.error(f"Auto verify finish error: {e}")
+
+    # ← አዲስ: ፎቶው ደረሰኝ ሆኖ ካልተነበበ እንደ የተሳሳተ ሙከራ መመዝገብ
+    if not_receipt:
+        try:
+            register_bad_receipt(uid, "ፎቶው እንደ ደረሰኝ አልተነበበም")
+        except Exception as e:
+            logger.error(f"Strike error: {e}")
+
+
 def get_payment_screenshot(message):
     lang = lang_of(message.from_user.id)
     if message.text == "/cancel":
         bot.send_message(message.chat.id, t(lang, "cancelled"), reply_markup=main_menu_keyboard(lang))
         return
+
+    # ← አዲስ: የተዘጋ ተጠቃሚ ክፍያ መላክ አይችልም
+    if is_blocked(message.from_user.id):
+        bot.send_message(message.chat.id, blocked_text(lang), reply_markup=main_menu_keyboard(lang))
+        return
     
     if not message.photo:
-        bot.send_message(message.chat.id, t(lang, "photo_only"))
+        # ← አዲስ: ፎቶ ያልሆነ ነገር እንደ የተሳሳተ ሙከራ ይቆጠራል
+        count, blocked = register_bad_receipt(message.from_user.id, "ፎቶ ያልሆነ መልዕክት ላከ")
+        if blocked:
+            return
+        warn = t(lang, "photo_only")
+        if count >= MAX_BAD_RECEIPTS - 1:
+            warn += "\n\n" + t(lang, "last_warning")
+        bot.send_message(message.chat.id, warn)
         bot.register_next_step_handler(message, get_payment_screenshot)
         return
     
@@ -935,7 +1205,17 @@ def finalize_submission(message, photo_msg, full_name):
     
     bot.send_message(ADMIN_ID, admin_msg)
     bot.forward_message(ADMIN_ID, uid, photo_msg.message_id)
-    bot.send_message(ADMIN_ID, "ያረጋግጡ፦", reply_markup=approve_markup)
+    approve_msg = bot.send_message(ADMIN_ID, "ያረጋግጡ፦", reply_markup=approve_markup)
+
+    # ← አዲስ: ደረሰኙን በራስ-ሰር ማረጋገጥ (ዳራ ላይ፤ ካልተረጋገጠ አድሚኑ እንደ ቀድሞው ያጸድቃል)
+    if AUTO_APPROVE and VERIFY_ET_API_KEY and photo_msg.photo:
+        sub_key = f"rcpt-{uid}-{photo_msg.message_id}"
+        users_col.update_one({"user_id": uid}, {"$set": {"pending_sub": sub_key}})
+        threading.Thread(
+            target=auto_verify_and_approve,
+            args=(uid, photo_msg, plan_id, user_data.get("pending_bank"), sub_key, approve_msg.message_id, approve_markup),
+            daemon=True
+        ).start()
     
     bot.send_message(uid, t(lang, "sent_ok"), reply_markup=main_menu_keyboard(lang))
 
@@ -1023,6 +1303,7 @@ def process_reject_custom(message, target_id):
         bot.register_next_step_handler(message, lambda m: process_reject_custom(m, target_id))
         return
 
+    users_col.update_one({"user_id": target_id}, {"$unset": {"pending_sub": ""}})  # ← አዲስ
     tl = lang_of(target_id)
     try:
         bot.send_message(target_id, f"{t(tl, 'rejected_head')}\n\n{html.escape(message.text)}")
